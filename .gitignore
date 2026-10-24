@@ -1,0 +1,58 @@
+# ==========================================
+# Root & Environment Security
+# ==========================================
+.env
+.env*.local
+.env.production
+.env.development
+*.log
+
+# IDE & System Files
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/
+*.swp
+
+# Docker / OS Artifacts
+.docker/
+
+# ==========================================
+# Frontend: Next.js & Node.js
+# ==========================================
+frontend/node_modules/
+frontend/.next/
+frontend/out/
+frontend/build/
+frontend/npm-debug.log*
+frontend/yarn-debug.log*
+frontend/yarn-error.log*
+frontend/.pnpm-debug.log*
+
+# Next.js bundle analyzer / coverage
+frontend/coverage/
+
+# ==========================================
+# Backend: Python & FastAPI
+# ==========================================
+backend/__pycache__/
+backend/*/__pycache__/
+backend/*/*/__pycache__/
+backend/*.py[cod]
+backend/*$py.class
+
+# Virtual Environments
+backend/.venv/
+backend/venv/
+backend/env/
+backend/ENV/
+
+# Python Testing & Tooling
+backend/.pytest_cache/
+backend/.coverage
+backend/htmlcov/
+backend/.ruff_cache/
+backend/.mypy_cache/
+
+# FastAPI Static Output Copy Target (if copied locally during testing)
+backend/app/static/
