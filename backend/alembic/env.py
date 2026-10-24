@@ -15,6 +15,8 @@ from app.models import (  # noqa: F401
     EmailVerificationToken,
     OAuthIdentity,
     RefreshToken,
+    RiskProfile,
+    RiskProfileAnswer,
     TwoFactorSecret,
     User,
     WebAuthnCredential,

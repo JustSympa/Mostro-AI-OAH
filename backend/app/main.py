@@ -11,6 +11,7 @@ from slowapi.middleware import SlowAPIMiddleware
 from sqlalchemy import text
 
 from app.api.routes.auth.router import router as auth_router
+from app.api.routes.profile.router import router as profile_router
 from app.config import get_settings
 from app.core.limiter import limiter
 from app.db.session import dispose_engine, get_engine
@@ -50,6 +51,7 @@ app.state.limiter = limiter
 app.add_exception_handler(RateLimitExceeded, _rate_limit_handler)
 app.add_middleware(SlowAPIMiddleware)
 app.include_router(auth_router)
+app.include_router(profile_router)
 
 
 @app.get("/health")
