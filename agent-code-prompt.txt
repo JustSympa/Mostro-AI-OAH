@@ -1,0 +1,140 @@
+## Codex Prompt – Mostro‑AI‑OAH Agent Implementation
+---
+**Goal**: Build a production‑ready, async FastAPI service that implements the full agent workflow described in the README and the mermaid graph below. The code should be clean, typed, modular, and unit‑testable.
+
+### High‑Level Architecture (from the graph)
+```
+User Input → FastAPI Gateway (SSE endpoint) → Meterless Proxy (usage‑tracking middleware) → Intent Router / JEV Classifier
+
+Decision branches:
+  • Prospectus Search → Query Rewriter → Zetaris VectorDB (pgvector) → Retrieval → JEV Retrieval Evaluator → Context Builder
+  • Financial Education → Fetch User Profile / Knowledge from Zetaris UserDB → Context Builder
+  • Direct Calendar Trigger → Extract key facts/dates via Zetaris → Context Builder
+
+Context Builder → Nemetron Bolt model execution → Base response → Post‑Processing Evaluator
+
+Post‑Processing splits into:
+  • Interactive Engagement Loop (quiz every 4 turns or on user consent) → MCQ or Open‑ended question → Formatter
+  • Calendar Proposal (when key dates are detected and not saved) → Calendar JSON payload → In‑app calendar card → Formatter
+
+Formatter → SSE stream back to the Gateway → User
+Refusal path → Render refusal → User
+```
+
+### Required Components
+1. **FastAPI gateway**
+   - `/sse` endpoint returning `EventSourceResponse` (sse-starlette) for streaming.
+   - Dependency injection for services (Meterless, IntentRouter, etc.).
+2. **Meterless Proxy / Usage Tracker** middleware
+   - Logs token usage, model costs; forwards request to downstream router.
+3. **Intent Router / JEV Classifier**
+   - Takes user message, decides which pipeline to run (prospectus, education, calendar) using a lightweight JEV model.
+   - Returns a `PipelineContext` with `pipeline` enum and any pre‑computed metadata.
+4. **Query Rewriter**
+   - Rewrites ambiguous queries for better vector search; callable class.
+5. **Data access layer (Zetaris Harness Virtualization)**
+   - Async pgvector client (SQLModel/SQLAlchemy) for `VectorDB`.
+   - Async PostgreSQL client for `UserDB` (portfolio, risk profile, mastery).
+   - Use environment variables for DB URLs (`DATABASE_URL`, `USERDB_URL`).
+6. **Retrieval Evaluator (JEV)**
+   - Computes relevance score for retrieved chunks; loops up to 3 retries.
+   - If score < 0.70 and retries < 3 → re‑run Query Rewriter.
+   - If retries >= 3 → refusal node.
+7. **Context Builder**
+   - Aggregates verified chunks, user profile data, and extracted calendar facts into a single prompt context.
+8. **Model Execution**
+   - Use Nemetron Bolt via the Meterless Nightshift proxy (`http://nightshift:xxxx/api/v1/completions`).
+   - Async HTTP client (httpx) with streaming support.
+9. **Post‑Processing Evaluator**
+   - Detects if a quiz should be injected (turn count % 4 == 0 or user consent flag).
+   - Detects unsaved key dates → calendar proposal path.
+10. **Quiz Router**
+    - Determines quiz type (MCQ vs open‑ended) based on previous intent and content.
+    - Generates question JSON compatible with the frontend.
+11. **Calendar Proposal Builder**
+    - Constructs a JSON payload (`{title, start, end, description}`) for the in‑app calendar card.
+12. **Formatter**
+    - Serialises final payload to SSE events (`event: data`), includes optional `type` field (`answer`, `quiz`, `calendar`, `refusal`).
+13. **Utilities**
+    - Token / cost tracker (shared with Meterless).
+    - Logging (structlog). 
+    - Config via Pydantic `BaseSettings`.
+
+### Technical Requirements
+- **Python 3.12**, FastAPI 0.115+, `sse-starlette` for SSE, `httpx` for async HTTP, `sqlmodel` (or async SQLAlchemy) for DB access, `pydantic` for settings/models.
+- **Typed** functions, `async def` throughout.
+- **Dependency Injection** using FastAPI `Depends`.
+- **Stateful per‑session** data stored in an in‑memory dict keyed by `session_id` (or Redis if you prefer).
+- **Error handling**: custom exceptions for retrieval failure, model errors, and refusal.
+- **Testing hooks**: abstract the back‑ends behind interfaces so unit tests can mock Zetaris DB, model client, and JEV evaluator.
+- **Docker compatibility**: the code must run inside the existing multi‑stage Docker image (see root `Dockerfile`). No extra system dependencies beyond the Python packages.
+
+### Desired File Structure (to be created under the project root)
+```
+backend/
+├─ app/
+│  ├─ __init__.py
+│  ├─ main.py               # FastAPI app entry point, SSE route
+│  ├─ config.py             # Pydantic settings
+│  ├─ middleware/
+│  │   └─ meterless.py      # Meterless proxy middleware
+│  ├─ router/
+│  │   ├─ intent.py         # IntentRouter / JEV classifier
+│  │   ├─ prospectus.py     # Query rewrite, vector search, evaluator
+│  │   ├─ education.py      # UserDB fetch
+│  │   └─ calendar.py       # Calendar extraction
+│  ├─ services/
+│  │   ├─ db.py             # Async DB sessions (VectorDB & UserDB)
+│  │   ├─ model.py          # Nemetron Bolt wrapper
+│  │   └─ postprocess.py    # Post‑Processing evaluator & quiz/calendar logic
+│  ├─ schemas/
+│  │   ├─ request.py        # Pydantic models for incoming messages
+│  │   ├─ response.py       # SSE payload schemas
+│  │   └─ quiz.py           # Quiz question schemas
+│  └─ utils/
+│      ├─ logging.py
+│      └─ token_tracker.py
+└─ tests/
+   └─ ...                   # unit tests for each component
+```
+
+### Prompt to Codex (the exact text you will paste)
+```
+Write a complete, production‑ready FastAPI application that implements the agent workflow described below. The code should follow the file structure shown, be fully typed, and use async/await everywhere. Include:
+- `backend/app/main.py` with an `/sse` endpoint that streams responses using `EventSourceResponse`.
+- `backend/app/middleware/meterless.py` implementing a FastAPI middleware that logs token usage and cost via the Meterless Nightshift proxy.
+- `backend/app/router/intent.py` containing the `IntentRouter` class that classifies user input into three pipelines (prospectus, education, calendar) using a placeholder JEV classifier.
+- `backend/app/router/prospectus.py` that rewrites the query, performs async pgvector search against a `VectorDB` (use `sqlmodel`), evaluates retrieval with a JEV evaluator (score ≥ 0.70, max 3 retries), and builds context.
+- `backend/app/router/education.py` that fetches user profile & risk‑profile data from a `UserDB` via Zetaris and returns it for context building.
+- `backend/app/router/calendar.py` that extracts key dates/facts from the vector store and returns them.
+- `backend/app/services/model.py` that calls the Nemetron Bolt model through the Meterless Nightshift HTTP endpoint (async httpx streaming).
+- `backend/app/services/postprocess.py` that decides whether to inject a quiz (every 4 turns or user consent) or a calendar proposal (when unsaved dates are found). Implement `QuizRouter` that creates either an MCQ or an open‑ended question JSON payload, and a `CalendarProposalBuilder` that creates a calendar card JSON.
+- `backend/app/schemas/` with Pydantic models for request, response, quiz, and calendar payloads.
+- `backend/app/config.py` using `pydantic.BaseSettings` for environment variables (`DATABASE_URL`, `USERDB_URL`, `METERS_PROXY_URL`, `NEMETRON_BOLT_URL`, etc.).
+- `backend/app/utils/token_tracker.py` that updates token usage counters via Meterless.
+- Proper error handling classes (`RetrievalError`, `ModelError`, `RefusalError`).
+- Unit‑test placeholders in `backend/tests/` (you do not need to write full tests, just scaffold files).
+- All imports must be explicit, typed, and the code should run inside the existing multi‑stage Docker image (Python 3.12, no extra OS packages).
+
+The application must:
+1. Accept a user message via SSE, pass it through the Meterless middleware.
+2. Route the message through the IntentRouter to pick a pipeline.
+3. Execute the chosen pipeline, building a context string.
+4. Call Nemetron Bolt with the context to generate a base answer.
+5. Run the Post‑Processing Evaluator to decide on quiz or calendar actions.
+6. Emit a final SSE payload containing either:
+   - `type: answer` with `content` (base answer),
+   - `type: quiz` with a JSON question (MCQ or open‑ended),
+   - `type: calendar` with a JSON calendar card, or
+   - `type: refusal` if the retrieval failed.
+7. Log token usage, cost, and request/response metadata via the Meterless proxy.
+8. Ensure the whole flow is fully asynchronous and scalable.
+
+Please include docstrings, comments explaining each step, and type hints. Use `httpx.AsyncClient` for external calls, `sqlmodel.AsyncSession` for DB queries, and `structlog` for logging.
+
+Make sure the code adheres to the repository's coding style (flake8, black, isort) and passes the existing CI checks.
+```
+---
+Save this exact prompt in a file named **agent-code-prompt.txt** at the repository root.
+```
+---
