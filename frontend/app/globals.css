@@ -1,0 +1,203 @@
+@import "tailwindcss";
+
+:root {
+  --background: #FFFFFF;
+  --background-secondary: #F8F7F4;
+  --foreground: #191C24;
+  --foreground-secondary: #5F6470;
+  --foreground-muted: #858995;
+  --border: #E8E5DE;
+  --border-light: #F0EDE6;
+  --gold-primary: #D4AF37;
+  --gold-dark: #8A6A00;
+  --champagne: #E8D8B0;
+  --champagne-light: #FAF6ED;
+  --midnight: #191C24;
+  --midnight-card: #20242D;
+  --burgundy: #722F37;
+}
+
+@theme inline {
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --font-sans: var(--font-geist-sans);
+  --font-mono: var(--font-geist-mono);
+}
+
+html {
+  color-scheme: light;
+  scroll-behavior: smooth;
+}
+
+body {
+  background-color: var(--background);
+  color: var(--foreground);
+  font-family: var(--font-geist-sans), -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+  overflow-x: hidden;
+  background-image:
+    radial-gradient(ellipse 70% 40% at 50% 0%, rgba(232, 216, 176, 0.35), transparent 70%),
+    radial-gradient(ellipse 60% 45% at 90% 25%, rgba(212, 175, 55, 0.12), transparent 60%),
+    radial-gradient(ellipse 50% 50% at 10% 65%, rgba(232, 216, 176, 0.25), transparent 60%);
+  background-attachment: fixed;
+}
+
+/* =========================================================================
+   TRUE LUXURY GLASSMORPHISM (Inspired by Reference 1 & 2)
+   ========================================================================= */
+
+/* Light-mode frosted glass with refractive specular highlight */
+.glass-panel-light {
+  background: rgba(255, 255, 255, 0.68);
+  backdrop-filter: blur(28px) saturate(180%);
+  -webkit-backdrop-filter: blur(28px) saturate(180%);
+  border: 1px solid rgba(255, 255, 255, 0.85);
+  box-shadow:
+    inset 0 1.5px 1px 0 rgba(255, 255, 255, 0.95),
+    inset 0 -1px 1px 0 rgba(232, 229, 222, 0.5),
+    0 20px 45px -15px rgba(25, 28, 36, 0.08),
+    0 1px 3px rgba(25, 28, 36, 0.02);
+}
+
+.glass-panel-light-hover {
+  transition: all 0.35s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+.glass-panel-light-hover:hover {
+  background: rgba(255, 255, 255, 0.82);
+  border-color: rgba(212, 175, 55, 0.45);
+  transform: translateY(-3px);
+  box-shadow:
+    inset 0 1.5px 1px 0 rgba(255, 255, 255, 1),
+    0 28px 55px -12px rgba(212, 175, 55, 0.18),
+    0 2px 6px rgba(25, 28, 36, 0.04);
+}
+
+/* Dark-mode frosted glass card (Reference 2: Dark glassmorphism mockup) */
+.glass-panel-dark {
+  background: rgba(25, 28, 36, 0.78);
+  backdrop-filter: blur(32px) saturate(170%);
+  -webkit-backdrop-filter: blur(32px) saturate(170%);
+  border: 1px solid rgba(232, 216, 176, 0.22);
+  box-shadow:
+    inset 0 1.5px 1px 0 rgba(232, 216, 176, 0.35),
+    inset 0 -1px 1px 0 rgba(0, 0, 0, 0.5),
+    0 35px 70px -15px rgba(0, 0, 0, 0.45);
+}
+
+/* Warm Champagne Frosted Glass Tint */
+.glass-panel-champagne {
+  background: rgba(250, 246, 237, 0.72);
+  backdrop-filter: blur(24px);
+  -webkit-backdrop-filter: blur(24px);
+  border: 1px solid rgba(212, 175, 55, 0.28);
+  box-shadow:
+    inset 0 1.5px 1px 0 rgba(255, 255, 255, 0.9),
+    0 20px 40px -12px rgba(138, 106, 0, 0.1);
+}
+
+/* =========================================================================
+   3D DIMENSIONAL SPHERES (Studio Lighting from Reference 1 & 2)
+   ========================================================================= */
+
+/* Warm Champagne Sphere — cream highlight → warm tan → golden brown */
+.sphere-champagne {
+  background: radial-gradient(circle at 35% 30%, #FFFDF8 0%, #F0E2C0 30%, #E8D8B0 55%, #C2AE7F 80%, #9E8B5E 100%);
+  box-shadow:
+    inset -10px -10px 24px rgba(110, 95, 60, 0.40),
+    inset 5px 5px 14px rgba(255, 253, 240, 0.90),
+    0 30px 50px -10px rgba(80, 70, 45, 0.35);
+}
+
+/* Midnight Charcoal Sphere — mid-slate highlight → deep navy → near-black */
+.sphere-charcoal {
+  background: radial-gradient(circle at 35% 30%, #6B7280 0%, #404550 30%, #303540 55%, #191C24 82%, #0F1117 100%);
+  box-shadow:
+    inset -10px -10px 24px rgba(0, 0, 0, 0.65),
+    inset 4px 4px 10px rgba(255, 255, 255, 0.22),
+    0 30px 50px -10px rgba(15, 17, 23, 0.45);
+}
+
+/* Gold Sphere — bright highlight → warm amber → deep gold → ochre */
+.sphere-gold {
+  background: radial-gradient(circle at 35% 30%, #FFFACC 0%, #FFE066 25%, #E5C358 50%, #D4AF37 72%, #A07C10 88%, #7A5C00 100%);
+  box-shadow:
+    inset -10px -10px 24px rgba(120, 90, 15, 0.50),
+    inset 5px 5px 15px rgba(255, 248, 180, 0.95),
+    0 30px 55px -10px rgba(212, 175, 55, 0.50);
+}
+
+/* Deep Burgundy Sphere — rose highlight → ruby → dark wine */
+.sphere-burgundy {
+  background: radial-gradient(circle at 35% 30%, #F4A0A8 0%, #C0404E 30%, #8B2530 55%, #722F37 75%, #4A1520 90%, #2D0A10 100%);
+  box-shadow:
+    inset -10px -10px 24px rgba(60, 10, 20, 0.55),
+    inset 5px 5px 14px rgba(255, 180, 185, 0.70),
+    0 30px 55px -10px rgba(114, 47, 55, 0.45);
+}
+
+/* Subtle Gold Borders */
+.border-gold-subtle {
+  border-color: rgba(212, 175, 55, 0.3);
+}
+
+/* Custom smooth scrollbar */
+::-webkit-scrollbar {
+  width: 8px;
+}
+
+::-webkit-scrollbar-track {
+  background: #F8F7F4;
+}
+
+::-webkit-scrollbar-thumb {
+  background: #D8D4CA;
+  border-radius: 4px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: #B8B3A8;
+}
+
+/* =========================================================================
+   AUTH PAGE DARK GLASSMORPHISM UTILITIES
+   ========================================================================= */
+
+/* Dark input fields on glass panels */
+.auth-input {
+  background: rgba(255, 255, 255, 0.06);
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  color: #ffffff;
+  transition: border-color 0.2s, box-shadow 0.2s;
+}
+
+.auth-input::placeholder {
+  color: rgba(255, 255, 255, 0.25);
+}
+
+.auth-input:focus {
+  outline: none;
+  border-color: rgba(212, 175, 55, 0.6);
+  box-shadow: 0 0 0 3px rgba(212, 175, 55, 0.12);
+}
+
+/* Slide transition ease override */
+.slide-ease {
+  transition-timing-function: cubic-bezier(0.32, 0.72, 0, 1);
+}
+
+/* Tab pill sliding indicator */
+.tab-pill {
+  transition: transform 0.3s cubic-bezier(0.34, 1.56, 0.64, 1);
+}
+
+/* Dark overlay glassmorphism (for full-page auth) */
+.glass-dark-auth {
+  background: rgba(18, 20, 28, 0.72);
+  backdrop-filter: blur(40px) saturate(160%);
+  -webkit-backdrop-filter: blur(40px) saturate(160%);
+  border: 1px solid rgba(255, 255, 255, 0.10);
+  box-shadow:
+    inset 0 1.5px 1px 0 rgba(255, 255, 255, 0.10),
+    inset 0 -1px 1px 0 rgba(0, 0, 0, 0.5),
+    0 40px 80px -20px rgba(0, 0, 0, 0.65);
+}

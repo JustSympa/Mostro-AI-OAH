@@ -36,6 +36,7 @@ router = APIRouter(prefix="/auth", tags=["auth"])
 @limiter.limit("10/minute")
 async def register(
     request: Request,
+    response: Response,
     payload: RegisterIn,
     session: AsyncSession = Depends(get_db),
 ) -> MessageOut:
@@ -66,6 +67,7 @@ async def login(
 @limiter.limit("10/minute")
 async def verify_email(
     request: Request,
+    response: Response,
     payload: VerifyEmailIn,
     session: AsyncSession = Depends(get_db),
 ) -> MessageOut:
@@ -119,6 +121,7 @@ async def set_password(
 @limiter.limit("10/minute")
 async def google_start(
     request: Request,
+    response: Response,
     creds_user: User | None = Depends(get_current_user_optional),
 ) -> RedirectResponse:
     google_service.require_google_configured()

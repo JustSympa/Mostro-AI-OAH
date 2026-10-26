@@ -5,12 +5,14 @@ from contextlib import asynccontextmanager
 from typing import Any
 
 from fastapi import FastAPI, Request
+from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from slowapi.errors import RateLimitExceeded
 from slowapi.middleware import SlowAPIMiddleware
 from sqlalchemy import text
 
 from app.api.routes.auth.router import router as auth_router
+from app.api.routes.profile.router import router as profile_router
 from app.config import get_settings
 from app.core.limiter import limiter
 from app.db.session import dispose_engine, get_engine
@@ -48,8 +50,21 @@ app = FastAPI(
 )
 app.state.limiter = limiter
 app.add_exception_handler(RateLimitExceeded, _rate_limit_handler)
+
 app.add_middleware(SlowAPIMiddleware)
+
+# ── CORS ─────────────────────────────────────────────────────────
+# Added after SlowAPIMiddleware so CORSMiddleware is the outermost
+# middleware and adds CORS headers to all responses (including 422/429/500 errors).
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=get_settings().cors_origins,
+    allow_credentials=True,   # Required for HTTP-only refresh-token cookie
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
 app.include_router(auth_router)
+app.include_router(profile_router)
 
 
 @app.get("/health")
