@@ -1,28 +1,36 @@
-# --- Stage 1: Build Next.js Frontend ---
-FROM node:20-alpine AS frontend-builder
-WORKDIR /app/frontend
+# ╔══════════════════════════════════════════════════════════════╗
+# ║  This project uses docker compose for multi-service builds.  ║
+# ║                                                              ║
+# ║  To run everything:                                          ║
+# ║    cp .env.example .env                                      ║
+# ║    docker compose up --build                                 ║
+# ║                                                              ║
+# ║  Individual service Dockerfiles live in:                     ║
+# ║    backend/Dockerfile   — FastAPI + Alembic                  ║
+# ║    frontend/Dockerfile  — Next.js standalone                 ║
+# ╚══════════════════════════════════════════════════════════════╝
+#
+# This root Dockerfile is intentionally a passthrough to the backend
+# image only, used for single-service deploys (e.g. Railway, Render).
 
-# Declare build arguments for static export
-ARG NEXT_PUBLIC_API_BASE_URL=/api
+FROM python:3.12-slim
 
-ENV NEXT_PUBLIC_API_BASE_URL=${NEXT_PUBLIC_API_BASE_URL}
+ENV PYTHONDONTWRITEBYTECODE=1 \
+    PYTHONUNBUFFERED=1 \
+    PIP_NO_CACHE_DIR=1 \
+    PIP_DISABLE_PIP_VERSION_CHECK=1
 
-COPY frontend/package*.json ./
-RUN npm ci
-
-COPY frontend/ ./
-RUN npm run build
-
-# --- Stage 2: Final Python Runtime ---
-FROM python:3.11-slim
 WORKDIR /app
 
-COPY backend/requirements.txt .
-RUN pip install --no-cache-dir -r requirements.txt
+COPY backend/pyproject.toml .
+RUN mkdir -p app && printf '' > app/__init__.py \
+    && pip install --no-cache-dir ".[dev]" \
+    && rm -rf app
 
-COPY backend/app ./app
-COPY --from=frontend-builder /app/frontend/out ./app/static
+COPY backend/ .
+
+RUN chmod +x scripts/entrypoint.sh
 
 EXPOSE 8000
 
-CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000"]
+ENTRYPOINT ["./scripts/entrypoint.sh"]
