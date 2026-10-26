@@ -286,7 +286,12 @@ function AuthInner() {
         body: JSON.stringify({ email: regEmail, password: regPassword }),
       });
       const data = await res.json();
-      if (!res.ok) throw new Error(data.detail || "Registration could not be completed.");
+      if (!res.ok) {
+        const msg = Array.isArray(data.detail)
+          ? data.detail.map((e: { msg?: string }) => e.msg).filter(Boolean).join(". ")
+          : (data.detail || "Registration could not be completed.");
+        throw new Error(msg);
+      }
       setRegSuccess(true);
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : "Unable to reach authentication service.";

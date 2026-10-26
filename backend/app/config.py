@@ -43,6 +43,15 @@ class Settings(BaseSettings):
     jwt_algorithm: str = Field(default="HS256")
     postgres_host: str = Field(default="postgres")
     postgres_port: int = Field(default=5432, validation_alias=AliasChoices("POSTGRES_PORT"))
+    # Comma-separated list of allowed CORS origins.
+    # Defaults to localhost dev origins for frontend + docs.
+    cors_allowed_origins: str = Field(
+        default="http://localhost:3000,http://localhost:8000"
+    )
+
+    @property
+    def cors_origins(self) -> list[str]:
+        return [o.strip() for o in self.cors_allowed_origins.split(",") if o.strip()]
 
     @field_validator("google_client_id", "google_client_secret", "cookie_domain", mode="before")
     @classmethod

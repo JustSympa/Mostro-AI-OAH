@@ -5,6 +5,7 @@ from contextlib import asynccontextmanager
 from typing import Any
 
 from fastapi import FastAPI, Request
+from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from slowapi.errors import RateLimitExceeded
 from slowapi.middleware import SlowAPIMiddleware
@@ -48,7 +49,19 @@ app = FastAPI(
 )
 app.state.limiter = limiter
 app.add_exception_handler(RateLimitExceeded, _rate_limit_handler)
+
 app.add_middleware(SlowAPIMiddleware)
+
+# ── CORS ─────────────────────────────────────────────────────────
+# Added after SlowAPIMiddleware so CORSMiddleware is the outermost
+# middleware and adds CORS headers to all responses (including 422/429/500 errors).
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=get_settings().cors_origins,
+    allow_credentials=True,   # Required for HTTP-only refresh-token cookie
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
 app.include_router(auth_router)
 
 
