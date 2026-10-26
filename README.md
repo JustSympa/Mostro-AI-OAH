@@ -505,64 +505,70 @@ Notes:
 
 ## 9. Repository structure
 
+The project has two main sub‑folders at the repository root:
+- **frontend/** – a Next.js application that builds a static web UI.
+- **backend/** – the FastAPI service that implements the agent, retrieval, and APIs.
+
+The Dockerfile performs a multi‑stage build: it first builds the Next.js app, then copies the generated static assets into the FastAPI image, which serves them.
+
+
 The Python package is `ai`. Adjust paths if it lives under `src/`.
 
-```
+```text
 Mostro-AI-OAH/
-├── README.md                    # this file (for coding agents and developers)
-├── OPEN_AGENT_HACKATHON.md      # examiner guide
-├── AGENTS.md                    # rules for coding agents
-├── pyproject.toml, uv.lock
-├── env.example                  # copy to .env
+├── README.md                     # main documentation
+├── OPEN_AGENT_HACKATHON.md       # examiner guide
+├── AGENTS.md                     # coding agent rules
+├── env.example                   # example env file
 ├── Dockerfile, docker-compose.yml, .dockerignore, .gitignore
-├── alembic.ini
-├── migrations/                  # Alembic (baseline = section 7)
-├── logs/                        # runtime logs (git-ignored, keep .gitkeep)
-├── data/demo/                   # demo IPO: chunks with precomputed embeddings, key facts,
-│                                # glossary, questionnaire (used by the demo seed)
-├── docs/
-│   └── api-map.md               # full endpoint list (the API contract)
-├── scripts/                     # smoke_check.py, seed_demo.py, run_eval.py
-│
-├── ai/
-│   ├── main.py                  # app factory, lifespan (DB pool, graph, scheduler, demo seed)
-│   ├── config.py                # pydantic-settings; the only place that reads env
-│   │
-│   ├── core/
-│   │   ├── logging.py           # structlog setup: console + logs/app.log + logs/agent.log
-│   │   ├── errors.py            # typed errors and HTTP mapping
-│   │   ├── security.py          # JWT, password hashing
-│   │   └── middleware.py        # request id, access log, rate limit
-│   │
-│   ├── api/                     # HTTP layer only
-│   │   ├── deps.py              # current user, admin guard, DB session
-│   │   ├── routes/              # system, auth, users, ipos, chat, education,
-│   │   │                        # calendar, usage, admin
-│   │   └── schemas/             # request/response models
-│   │
-│   ├── services/                # use cases: auth, users, chat, quiz, calendar,
-│   │                            # reminders, usage, demo_seed
-│   │
-│   ├── agent/                   # LangGraph
-│   │   ├── state.py, graph.py
-│   │   ├── nodes/               # router, query_rewriter, retriever, jev_evaluator,
-│   │   │                        # edu_fetch, calendar_extract, context_builder,
-│   │   │                        # generate, post_processor, quiz_builder,
-│   │   │                        # calendar_proposal, refusal, formatter
-│   │   └── prompts/             # versioned prompt templates
-│   │
-│   ├── retrieval/               # hybrid SQL, RRF, neighbor expansion
-│   ├── integrations/
-│   │   ├── zetaris/             # client, parameterized queries, health check
-│   │   └── meterless/           # usage tracking wrapper, health check
-│   ├── llm/                     # chat.py (DeepSeek), embeddings.py (Voyage),
-│   │                            # retry.py, rate_limit.py, reranker.py (optional)
-│   ├── db/                      # session, SQLAlchemy models, repositories
-│   ├── ingestion/               # parse, chunk, embed, extract_facts, summarize, pipeline
-│   └── domain/                  # enums and shared types
-│
-├── tests/                       # unit/, integration/, e2e/
-└── evals/                       # datasets/ (golden Q&A, trap sets), metrics/
+├── schema-for-agent.sql
+├── api-map-draft.md
+├── backend/
+│   ├── alembic.ini
+│   ├── pyproject.toml, uv.lock
+│   ├── Dockerfile, docker-compose.yml, .dockerignore
+│   ├── alembic/                 # migrations
+│   ├── logs/                    # runtime logs
+│   ├── data/demo/               # demo IPO data
+│   ├── docs/
+│   │   └── api-map.md
+│   ├── scripts/                 # utility scripts
+│   └── app/
+│       ├── __init__.py
+│       ├── main.py
+│       ├── config.py
+│       ├── core/
+│       ├── db/
+│       ├── deps/
+│       ├── models/
+│       ├── schemas/
+│       ├── services/
+│       ├── api/
+│       │   ├── deps.py
+│       │   ├── routes/
+│       │   └── schemas/
+│       └── agent/
+│           ├── state.py
+│           ├── graph.py
+│           └── nodes/
+├── frontend/
+│   ├── README.md
+│   ├── app/
+│   │   ├── layout.tsx
+│   │   ├── page.tsx
+│   │   ├── login/
+│   │   ├── register/
+│   │   ├── verify-email/
+│   │   └── globals.css
+│   ├── components/
+│   ├── lib/
+│   ├── public/
+│   ├── next.config.ts
+│   ├── package.json
+│   ├── package-lock.json
+│   ├── tsconfig.json
+│   ├── AGENTS.md
+│   └── Dockerfile
 ```
 
 ### Layering rules

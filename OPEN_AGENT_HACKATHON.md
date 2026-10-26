@@ -497,7 +497,7 @@ grep "<MESSAGE_ID>" logs/agent.log | jq -c .
 | **Zetaris** | **Query layer over our data stores.** Chunk retrieval for prospectus search and the user's profile and knowledge lookups for education go through the Zetaris harness, as predefined, parameterized, read-only queries. <!-- TODO: describe the actual connection and what is virtualized --> | `ai/integrations/zetaris/` | `zetaris` in `GET /v1/admin/integrations/health`; `trace.zetaris_queries` on any answer; `zetaris.query` events in `logs/agent.log`; `"via":"zetaris"` on every retrieval attempt |
 | **Meterless** | **Usage and cost tracking around every LLM call**: tokens and cost per answer, per route, per user. <!-- TODO: describe the actual Meterless component used --> | `ai/integrations/meterless/` | `meterless` in the health check; `usage` on every message; `GET /v1/usage/me`; `meterless.usage` events in the logs |
 | **Cursor** | **Development environment.** The repository was built in Cursor, guided by `AGENTS.md` (project rules) and `README.md` (full technical documentation). <!-- TODO: link evidence: commit history, screenshots, prompts --> | `AGENTS.md`, `README.md` | Repository history and files |
-| **NVIDIA** | Not integrated in this submission (optional). <!-- TODO: update if a NVIDIA model or service is added --> | | |
+| **NVIDIA** | Integrated NVIDIA models (Nemotron-3.5-Parser, Nemotron-3.5-Embed, Nemotron Bolt) accessed via Meterless Nightshift proxy. | `ai/integrations/nightshift/` | Check `/v1/meta` for model names; verify via logs with `meterless` usage. |
 
 **Other technology:** DeepSeek (language model), Voyage AI (embeddings), PostgreSQL with pgvector, FastAPI, LangGraph.
 

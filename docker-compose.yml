@@ -1,21 +1,7 @@
-# ╔══════════════════════════════════════════════════════════════╗
-# ║          Mostro AI — Full-Stack Docker Compose               ║
-# ║  Services: postgres · redis · backend (FastAPI) · frontend   ║
-# ║                                                              ║
-# ║  Quick start:                                                ║
-# ║    cp .env.example .env          # first time only           ║
-# ║    docker compose up --build     # build & run everything    ║
-# ║    docker compose up             # subsequent runs           ║
-# ║                                                              ║
-# ║  URLs:                                                       ║
-# ║    Frontend  →  http://localhost:3000                        ║
-# ║    Backend   →  http://localhost:8000                        ║
-# ║    API Docs  →  http://localhost:8000/docs                   ║
-# ╚══════════════════════════════════════════════════════════════╝
+# Docker Compose for full stack (backend + frontend) and Zetaris services
 
 services:
-
-  # ─────────────────────────────── PostgreSQL ───────────────────────────────
+  # Core services
   postgres:
     image: postgres:16-alpine
     restart: unless-stopped
@@ -34,7 +20,6 @@ services:
     networks:
       - internal
 
-  # ─────────────────────────────── Redis ───────────────────────────────────
   redis:
     image: redis:7-alpine
     restart: unless-stopped
@@ -49,18 +34,17 @@ services:
     networks:
       - internal
 
-  # ─────────────────────────────── Backend (FastAPI) ────────────────────────
-  backend:
+  # Application – combines FastAPI backend and static Next.js assets
+  app:
     build:
-      context: ./backend
+      context: .
       dockerfile: Dockerfile
     restart: unless-stopped
     ports:
-      - "${BACKEND_PORT:-8000}:8000"
+      - "${APP_PORT:-8000}:8000"
     env_file:
       - .env
     environment:
-      # Override connection strings to use Docker service names
       DATABASE_URL: postgresql+asyncpg://${POSTGRES_USER:-mostro}:${POSTGRES_PASSWORD:-mostro}@postgres:5432/${POSTGRES_DB:-mostro}
       REDIS_URL: redis://redis:6379/0
     depends_on:
@@ -69,13 +53,7 @@ services:
       redis:
         condition: service_healthy
     healthcheck:
-      test:
-        [
-          "CMD",
-          "python",
-          "-c",
-          "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/health')"
-        ]
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/health')"]
       interval: 5s
       timeout: 5s
       retries: 10
@@ -84,36 +62,39 @@ services:
       - internal
       - public
 
-  # ─────────────────────────────── Frontend (Next.js) ──────────────────────
-  frontend:
-    build:
-      context: ./frontend
-      dockerfile: Dockerfile
-      args:
-        # Baked into the Next.js static bundle at build time.
-        # Points the browser at the backend API. Update for prod.
-        NEXT_PUBLIC_API_URL: ${NEXT_PUBLIC_API_URL:-http://localhost:8000}
+  # Zetaris services (example placeholders)
+  zetaris-engine:
+    image: zetaris/engine:latest
     restart: unless-stopped
     ports:
-      - "${FRONTEND_PORT:-3000}:3000"
+      - "${ZETARIS_ENGINE_PORT:-9000}:9000"
     environment:
-      NODE_ENV: production
-    depends_on:
-      backend:
-        condition: service_healthy
+      # Add any required environment vars for the engine here
+      ENGINE_MODE: production
     networks:
-      - public
+      - internal
 
-# ─────────────────────────────── Networks ────────────────────────────────────
+  zetaris-proxy:
+    image: zetaris/proxy:latest
+    restart: unless-stopped
+    ports:
+      - "${ZETARIS_PROXY_PORT:-9100}:9100"
+    environment:
+      # Proxy configuration – point to the engine service
+      ENGINE_HOST: zetaris-engine
+      ENGINE_PORT: 9000
+    depends_on:
+      zetaris-engine:
+        condition: service_started
+    networks:
+      - internal
+
 networks:
-  # Internal network — postgres & redis are NOT reachable from the host
   internal:
     driver: bridge
-  # Public network — backend & frontend are reachable from the host
   public:
     driver: bridge
 
-# ─────────────────────────────── Volumes ─────────────────────────────────────
 volumes:
   postgres_data:
   redis_data:
