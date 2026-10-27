@@ -3,14 +3,19 @@ name: mostro-ai-oah-backend-only
 services:
   postgres:
     image: pgvector/pgvector:pg16
+    # Listen on 5433 inside the container (default is 5432).
+    command: ["postgres", "-p", "5433"]
     environment:
       POSTGRES_USER: mostro
       POSTGRES_PASSWORD: mostro
       POSTGRES_DB: mostro
     volumes:
       - postgres_data:/var/lib/postgresql/data
+    ports:
+      # Publish to the host so local tools (psql, DBeaver) can connect.
+      - "5433:5433"
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U mostro -d mostro"]
+      test: ["CMD-SHELL", "pg_isready -U mostro -d mostro -p 5433"]
       interval: 2s
       timeout: 3s
       retries: 15
@@ -39,7 +44,7 @@ services:
       - "8000:8000"
     environment:
       ENV: ${ENV:-development}
-      DATABASE_URL: ${DATABASE_URL:-postgresql+asyncpg://mostro:mostro@postgres:5432/mostro}
+      DATABASE_URL: ${DATABASE_URL:-postgresql+asyncpg://mostro:mostro@postgres:5433/mostro}
       REDIS_URL: ${REDIS_URL:-redis://redis:6379/0}
       JWT_SECRET: ${JWT_SECRET:-dev-only-change-me}
       AES_KEY: ${AES_KEY:-0000000000000000000000000000000000000000000000000000000000000000}
@@ -55,7 +60,7 @@ services:
       PUBLIC_BASE_URL: ${PUBLIC_BASE_URL:-http://localhost:8000}
       CORS_ALLOWED_ORIGINS: ${CORS_ALLOWED_ORIGINS:-http://localhost:3000,http://localhost:8000}
       POSTGRES_HOST: postgres
-      POSTGRES_PORT: "5432"
+      POSTGRES_PORT: "5433"
     depends_on:
       postgres:
         condition: service_healthy

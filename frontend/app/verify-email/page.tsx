@@ -3,6 +3,7 @@
 import React, { useState, useEffect, useCallback, Suspense } from "react";
 import Link from "next/link";
 import { useSearchParams } from "next/navigation";
+import Image from "next/image";
 import { ShieldCheckIcon, CheckCircle2Icon, ArrowUpRightIcon } from "../../components/Icons";
 import { ChevronLeft, KeyRound, AlertCircle, RefreshCw } from "lucide-react";
 import { API_BASE } from "../../lib/auth";
@@ -160,7 +161,13 @@ function VerifyEmailInner() {
             <span>Back to Sign In</span>
           </Link>
           <div className="flex items-center gap-2">
-            <img src="/logo-icon.png" alt="Mostro AI" className="w-5 h-5 object-contain" />
+            <Image
+              src="/logo-icon.png"
+              alt="Mostro AI"
+              width={150}
+              height={146}
+              className="w-5 h-5 object-contain"
+            />
             <span className="text-xs font-bold text-[#191C24] tracking-tight">
               Mostro<span className="text-[#8A6A00]">.ai</span>
             </span>
