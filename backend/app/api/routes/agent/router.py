@@ -7,7 +7,7 @@ from fastapi import APIRouter, Depends, Request
 from sse_starlette import EventSourceResponse, JSONServerSentEvent
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.agent.errors import ModelError, RefusalError
+from app.agent.errors import DataHarnessError, ModelError, RefusalError
 from app.config import get_settings
 from app.db.session import get_db
 from app.deps.auth import get_current_user
@@ -61,6 +61,13 @@ async def stream_agent(
             yield JSONServerSentEvent(
                 data=AgentEvent(
                     type="error", content="The assistant is temporarily unavailable."
+                ).model_dump(mode="json")
+            )
+        except DataHarnessError:
+            logger.exception("Agent Zetaris context read failed", extra={"request_id": request_id})
+            yield JSONServerSentEvent(
+                data=AgentEvent(
+                    type="error", content="The assistant's data harness is temporarily unavailable."
                 ).model_dump(mode="json")
             )
         except Exception:

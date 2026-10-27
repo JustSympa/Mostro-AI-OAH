@@ -4,10 +4,8 @@ import uuid
 from dataclasses import dataclass
 from datetime import UTC, datetime
 
-from sqlalchemy import select
-from sqlalchemy.ext.asyncio import AsyncSession
-
-from app.models import CalendarProposal, KeyFact
+from app.models import KeyFact
+from app.services.agent_data import ZetarisAgentData
 
 
 @dataclass(frozen=True)
@@ -33,30 +31,13 @@ def parse_fact_date(value: str) -> datetime | None:
 
 
 async def find_unsaved_calendar_facts(
-    session: AsyncSession, ipo_id: uuid.UUID, chat_session_id: uuid.UUID
+    data: ZetarisAgentData, user_id: uuid.UUID, ipo_id: uuid.UUID, chat_session_id: uuid.UUID
 ) -> list[CalendarFact]:
-    facts = (
-        await session.execute(
-            select(KeyFact).where(
-                KeyFact.ipo_id == ipo_id,
-                KeyFact.review_status == "verified",
-            )
-        )
-    ).scalars().all()
-    proposals = (
-        await session.execute(
-            select(CalendarProposal.key_fact_id).where(
-                CalendarProposal.chat_session_id == chat_session_id,
-                CalendarProposal.key_fact_id.is_not(None),
-                CalendarProposal.status != "rejected",
-            )
-        )
-    ).scalars().all()
-    saved_ids = set(proposals)
+    facts = await data.calendar_facts(user_id, ipo_id, chat_session_id)
 
     results: list[CalendarFact] = []
     for fact in facts:
         event_date = parse_fact_date(fact.value)
-        if event_date is not None and fact.id not in saved_ids:
+        if event_date is not None:
             results.append(CalendarFact(fact=fact, event_date=event_date))
     return results

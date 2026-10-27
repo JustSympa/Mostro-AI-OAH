@@ -4,6 +4,8 @@ from dataclasses import dataclass
 from enum import StrEnum
 from typing import Protocol
 
+from app.config import Settings
+
 
 class Pipeline(StrEnum):
     PROSPECTUS = "prospectus"
@@ -21,9 +23,6 @@ class JEVClassifier(Protocol):
     async def classify(self, message: str) -> PipelineContext: ...
 
 
-from app.services.jev import JEVClassifierImpl
-from app.config import Settings
-
 class RuleBasedJEVClassifier:
     """Simple keyword‑based fallback classifier used when no JEV endpoint is configured."""
 
@@ -38,25 +37,22 @@ class RuleBasedJEVClassifier:
             return PipelineContext(Pipeline.EDUCATION, "education intent keyword")
         return PipelineContext(Pipeline.PROSPECTUS, "prospectus is the default pipeline")
 
+
 class IntentRouter:
-    def __init__(self, settings: Settings | None = None, classifier: JEVClassifier | None = None) -> None:
-        # If a JEV endpoint is configured, use the real classifier; otherwise fall back to rule‑based.
-        self._classifier = classifier
-        if self._classifier is None:
-            if settings and settings.jev_endpoint:
-                self._classifier = JEVClassifierImpl(settings.jev_endpoint, settings.jev_api_key)
-            else:
-                self._classifier = RuleBasedJEVClassifier()
+    def __init__(
+        self, settings: Settings | None = None, classifier: JEVClassifier | None = None
+    ) -> None:
+        self._classifier: JEVClassifier
+        if classifier is not None:
+            self._classifier = classifier
+        elif settings and settings.jev_endpoint:
+            from app.services.jev import JEVClassifierImpl
+
+            self._classifier = JEVClassifierImpl(
+                settings.jev_endpoint, settings.jev_api_key, settings.jev_model
+            )
+        else:
+            self._classifier = RuleBasedJEVClassifier()
 
     async def route(self, message: str) -> PipelineContext:
-        result = await self._classifier.classify(message)
-        # JEV service may return a plain dict; convert to PipelineContext if necessary
-        if isinstance(result, dict):
-            from app.router.intent import Pipeline, PipelineContext
-            pipeline = Pipeline(result.get("pipeline", "prospectus"))
-            rationale = result.get("rationale", "")
-            return PipelineContext(pipeline=pipeline, rationale=rationale)
-        return result
-
-
-# Duplicate IntentRouter implementation removed – only the settings-aware version is used
+        return await self._classifier.classify(message)

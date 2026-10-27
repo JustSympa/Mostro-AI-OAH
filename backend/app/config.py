@@ -3,6 +3,8 @@ from __future__ import annotations
 import logging
 import sys
 from functools import lru_cache
+from typing import Literal
+from urllib.parse import urlsplit
 
 from pydantic import AliasChoices, Field, field_validator, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
@@ -36,11 +38,25 @@ class Settings(BaseSettings):
     nemetron_bolt_model: str = Field(default="nemetron-bolt")
     jev_endpoint: str | None = Field(default=None)
     jev_api_key: str | None = Field(default=None)
+    jev_model: str = Field(default="jev-latest")
+    hmem_enabled: bool = Field(default=True)
 
-    embedding_api_url: str | None = Field(default=None)
+    zetaris_rest_url: str | None = Field(default=None)
+    zetaris_org_id: str | None = Field(default=None, pattern=r"^[0-9]+$")
+    zetaris_api_key: str | None = Field(default=None)
+    zetaris_username: str | None = Field(default=None)
+    zetaris_password: str | None = Field(default=None)
+    zetaris_datasource: str = Field(default="mostro", pattern=r"^[A-Za-z_][A-Za-z0-9_]*$")
+    zetaris_timeout_seconds: float = Field(default=60.0, gt=0)
+    zetaris_page_size: int = Field(default=100, ge=1, le=100)
+    zetaris_max_rows: int = Field(default=10000, ge=1)
+
+    embedding_api_url: str | None = Field(default="https://api.voyageai.com/v1/embeddings")
     embedding_api_key: str | None = Field(default=None)
     embedding_model: str = Field(default="voyage-3.5")
-    embedding_dimension: int = Field(default=1024)
+    embedding_dimension: Literal[1024] = 1024
+    embedding_batch_size: int = Field(default=32, ge=1, le=1000)
+    embedding_max_attempts: int = Field(default=3, ge=1, le=6)
     model_timeout_seconds: float = Field(default=60.0)
     retrieval_threshold: float = Field(default=0.70)
     retrieval_max_attempts: int = Field(default=3)
@@ -83,6 +99,13 @@ class Settings(BaseSettings):
         "nemetron_bolt_url",
         "embedding_api_url",
         "embedding_api_key",
+        "jev_endpoint",
+        "jev_api_key",
+        "zetaris_rest_url",
+        "zetaris_org_id",
+        "zetaris_api_key",
+        "zetaris_username",
+        "zetaris_password",
         mode="before",
     )
     @classmethod
@@ -90,6 +113,20 @@ class Settings(BaseSettings):
         if isinstance(value, str) and not value.strip():
             return None
         return value
+
+    @field_validator("zetaris_rest_url")
+    @classmethod
+    def valid_zetaris_rest_url(cls, value: str | None) -> str | None:
+        if value is None:
+            return None
+        url = urlsplit(value)
+        if (
+            url.scheme not in {"http", "https"} or not url.netloc or url.username
+            or url.password or url.query or url.fragment
+            or url.path.rstrip("/") not in {"", "/api/v1.0"}
+        ):
+            raise ValueError("ZETARIS_REST_URL must be an HTTP(S) origin or /api/v1.0 base URL")
+        return value.rstrip("/")
 
     @field_validator("aes_key")
     @classmethod

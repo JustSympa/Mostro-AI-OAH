@@ -15,3 +15,4 @@ class AgentEvent(BaseModel):
     question: QuizQuestion | None = None
     calendar: CalendarCard | None = None
     citations: list[dict[str, Any]] = Field(default_factory=list)
+    memory_trace: dict[str, Any] | None = None

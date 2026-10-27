@@ -4,12 +4,10 @@ import uuid
 from dataclasses import dataclass
 from typing import Protocol
 
-from sqlalchemy import select
-from sqlalchemy.ext.asyncio import AsyncSession
-
 from app.agent.errors import RefusalError, RetrievalError
 from app.config import Settings
-from app.models import Chunk, Document
+from app.models import Chunk
+from app.services.agent_data import ZetarisAgentData
 from app.services.embeddings import Embedder
 from app.services.jev import JEVJudgeImpl
 
@@ -41,52 +39,38 @@ class QueryRewriter:
 class ProspectusRetriever:
     def __init__(
         self,
-        session: AsyncSession,
+        data: ZetarisAgentData,
         embedder: Embedder,
         settings: Settings,
         rewriter: QueryRewriter | None = None,
         judge: RetrievalJudge | None = None,
     ) -> None:
-        self._session = session
+        self._data = data
         self._embedder = embedder
         self._settings = settings
         self._rewriter = rewriter or QueryRewriter()
-        self._judge = judge or (JEVJudgeImpl(settings.jev_endpoint) if getattr(settings, 'jev_endpoint', None) else SimilarityJudge())
+        self._judge: RetrievalJudge = judge or (
+            JEVJudgeImpl(settings.jev_endpoint, settings.jev_api_key, settings.jev_model)
+            if settings.jev_endpoint
+            else SimilarityJudge()
+        )
 
     async def retrieve(self, query: str, ipo_id: uuid.UUID, *, limit: int = 8) -> list[RetrievedChunk]:
         rewritten = query
+        vectors: dict[str, list[float]] = {}
         for attempt in range(max(1, self._settings.retrieval_max_attempts)):
             try:
-                vector = await self._embedder.embed(rewritten)
+                if rewritten not in vectors:
+                    vectors[rewritten] = await self._embedder.embed(rewritten)
+                vector = vectors[rewritten]
             except RetrievalError as exc:
                 raise RefusalError(str(exc)) from exc
-            distance = Chunk.embedding.cosine_distance(vector).label("distance")
-            rows = (
-                await self._session.execute(
-                    select(Chunk, distance)
-                    .join(Document, Document.id == Chunk.document_id)
-                    .where(
-                        Chunk.ipo_id == ipo_id,
-                        Chunk.embedding.is_not(None),
-                        Document.status == "indexed",
-                    )
-                    .order_by(distance)
-                    .limit(limit)
-                )
-            ).all()
+            rows = await self._data.chunks(ipo_id, vector, limit=limit)
             chunks = [
-                RetrievedChunk(chunk=chunk, score=max(0.0, 1.0 - float(distance_value)))
-                for chunk, distance_value in rows
+                RetrievedChunk(chunk=chunk, score=score)
+                for chunk, score in rows
             ]
-            # If using JEVJudgeImpl, convert chunks to plain dicts expected by the service
-if isinstance(self._judge, JEVJudgeImpl):
-    chunk_dicts = [
-        {"id": str(chunk.chunk.id), "content": chunk.chunk.content}
-        for chunk in chunks
-    ]
-    score = await self._judge.score(rewritten, chunk_dicts)
-else:
-    score = await self._judge.score(rewritten, chunks)
+            score = await self._judge.score(query, chunks)
             if chunks and score >= self._settings.retrieval_threshold:
                 return chunks
             if attempt + 1 < max(1, self._settings.retrieval_max_attempts):

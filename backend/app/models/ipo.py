@@ -21,8 +21,6 @@ class IPO(Base):
     company_name: Mapped[str] = mapped_column(String(255), nullable=False)
     symbol: Mapped[str] = mapped_column(String(50), nullable=False)
     issuer_country: Mapped[str] = mapped_column(String(100), nullable=False)
-    sector: Mapped[str | None] = mapped_column(String(100), nullable=True)
-    industry: Mapped[str | None] = mapped_column(String(100), nullable=True)
     authorized_sources: Mapped[list[Any]] = mapped_column(
         JSONB, nullable=False, default=list, server_default=text("'[]'::jsonb")
     )
@@ -43,18 +41,8 @@ class Document(Base):
     ipo_id: Mapped[uuid.UUID] = mapped_column(
         UUID(as_uuid=True), ForeignKey("ipos.id", ondelete="CASCADE"), nullable=False
     )
-    source_id: Mapped[uuid.UUID | None] = mapped_column(
-        UUID(as_uuid=True), ForeignKey("source_registry.id", ondelete="SET NULL"), nullable=True
-    )
     title: Mapped[str] = mapped_column(String(255), nullable=False)
     file_hash: Mapped[str] = mapped_column(String(64), nullable=False, unique=True)
-    source_url: Mapped[str | None] = mapped_column(Text, nullable=True)
-    publisher: Mapped[str | None] = mapped_column(String(255), nullable=True)
-    source_type: Mapped[str] = mapped_column(
-        String(50), nullable=False, default="unknown", server_default="unknown"
-    )
-    published_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
-    retrieved_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     version: Mapped[str] = mapped_column(String(20), nullable=False, default="1.0", server_default="1.0")
     status: Mapped[str] = mapped_column(String(50), nullable=False, default="indexed", server_default="indexed")
 
@@ -82,6 +70,7 @@ class Chunk(Base):
     )
     content: Mapped[str] = mapped_column(Text, nullable=False)
     embedding: Mapped[list[float] | None] = mapped_column(Vector(1024), nullable=True)
+    embedding_model: Mapped[str | None] = mapped_column(String(100), nullable=True)
     page_number: Mapped[int] = mapped_column(Integer, nullable=False)
     section_path: Mapped[str | None] = mapped_column(String(255), nullable=True)
 

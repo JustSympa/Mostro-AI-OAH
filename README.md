@@ -180,7 +180,7 @@ flowchart TD
 | `router` | Classify intent: `prospectus_search`, `financial_education`, `calendar`, `out_of_scope` (includes advice-seeking). Cheap model, structured output with a short reason. | `intent`, `route_reason` |
 | `query_rewriter` | Turn the message plus history into a standalone search query. On retries, rewrite differently using the evaluator's feedback. | `rewritten_query`, `tries` |
 | `retriever` | Hybrid search (vector + full-text, fused with RRF), filtered by `ipo_id`, executed through the Zetaris adapter. | `retrieved` (chunk id, page, section, score) |
-| `jev_evaluator` | Score whether the retrieved evidence is sufficient for the task, 0 to 1, plus a short reason and a hint for rewriting. Default implementation: LLM-as-judge on the fast model with structured output. Threshold `JEV_MIN_SCORE` (0.70), max tries `JEV_MAX_TRIES` (3). | `jev_score`, `verdict`, `feedback` |
+| `jev_evaluator` | With JEV configured, evaluate evidence sufficiency using System One's Noul probability (0 to 1). Threshold `RETRIEVAL_THRESHOLD` (0.70), max tries `RETRIEVAL_MAX_ATTEMPTS` (3). Without JEV, use the deterministic similarity baseline. | evidence probability, pass/retry/abstain |
 | `refusal` / `abstain` | Produce the honest "I could not find this in the prospectus" (outcome `abstained`) or the out-of-scope refusal (outcome `refused`). No generation from model knowledge. | `answer`, `outcome` |
 | `edu_fetch` | Load the user's profile and knowledge states (through Zetaris). Also retrieve relevant chunks when the question concerns this IPO. | `profile`, `knowledge` |
 | `calendar_extract` | Load **verified** date key facts for the IPO. | `key_dates` |
@@ -238,18 +238,142 @@ Upload PDF → parse (layout-aware) → section-aware chunking → embed (Voyage
 
 ### 6.7 Sponsor integrations
 
-Both integrations sit behind small adapters in `ai/integrations/` so they can be disabled in tests and so their use is observable.
+Sponsor integrations sit behind small adapters. Tests inject fakes; the agent
+does not silently bypass Zetaris when the harness is missing or fails.
 
 | Integration | Role in the system | Adapter | Observability |
 |---|---|---|---|
-| **Zetaris** | Query layer over the data stores. Retrieval queries and user profile/knowledge queries go through it. | `ai/integrations/zetaris/` | `zetaris.query` log events, `trace.zetaris_queries`, `GET /v1/admin/integrations/health` |
+| **Zetaris** | Required agent context harness: IPOs, chunks, learning profile/progression, history, calendar facts | `backend/app/services/zetaris.py`, `backend/app/services/agent_data.py` | `mostro.zetaris` completion logs (row/page counts and duration, no SQL or record contents), `python -m scripts.check_zetaris` |
 | **Meterless** | Usage tracking around every LLM call: tokens and cost per request. | `ai/integrations/meterless/` | `meterless.usage` log events, `usage_events` table, `message.usage`, `GET /v1/usage/me` |
 
 Rules for the adapters:
 - Define a narrow interface (for example `run_chunk_search(...)`, `get_user_context(...)`, `record_usage(...)`).
-- Provide a **direct-Postgres fallback** (`ZETARIS_ENABLED=false`) for local development and tests, and mark `via: "zetaris" | "direct"` in the trace. For the hackathon evaluation, Zetaris must be enabled.
-- Queries are **predefined and parameterized**, read-only, with timeouts and row limits. Never let the model write free-form SQL.
-- Confirm the actual connection method (MCP, REST, or JDBC) in the Zetaris documentation and record it here when decided: <!-- TODO: connection method -->.
+- **No direct-Postgres fallback for agent context.** Missing configuration, upstream failures, malformed records or incomplete pagination produce an explicit SSE error, not fabricated context or a misleading evidence refusal.
+- Queries are predefined, read-only templates with typed UUID filters, safely encoded model names, timeouts and row limits. No model-written SQL. The REST API accepts SQL text, not bind parameters.
+- **Approved transaction boundary:** authentication, chat ownership/creation/counters, message/citation/calendar writes, and H-MEM state locking/ledger updates remain on PostgreSQL. All other agent context reads use Zetaris. Migrations and ingestion/indexing also remain direct database operations.
+- **Connection method:** documented REST on port 8888 (`/api/v1.0`), with PostgreSQL registered as a JDBC datasource inside Zetaris. The web UI proxy on port 3000 is a different API and is not used.
+
+#### Local Zetaris setup
+
+The REST contract is verified against the
+[official OpenAPI](https://api.saas.enterprise.zetaris.com/redoc/docs.yaml),
+[knowledge-base API guide](https://kbase.zetaris.com/knowledge/accessing-zetaris-using-api),
+[pagination guide](https://kbase.zetaris.com/knowledge/rest-api), and
+[getting-started SQL reference](https://github.com/zetaris/getting-started/blob/main/docs/guides/zetaris-lightning-sql-commands.md).
+The adapter uses:
+
+- `POST /query/sql/start` with `{"select": "...", "pageLimit": 100}`;
+- `GET /query/sql/page` with `queryToken`, `pageLimit`, `pageNumber`;
+- `DELETE /query/sql/close/{queryToken}`, including after page/validation failures.
+
+Every request includes `X-Org-ID`, a unique `X-Request-ID`, and the API key as
+a bearer token. All pages are fetched and validated; `ZETARIS_MAX_ROWS` overflow
+fails instead of silently truncating context. Requests that might have opened a
+cursor are not blindly retried.
+
+`ZETARIS_USERNAME` and `ZETARIS_PASSWORD` are accepted for the optional
+`--login` diagnostic (`GET /auth/login` with Basic auth). The REST OpenAPI
+distinguishes login idTokens from API tokens: **SQL still requires
+`ZETARIS_API_KEY`**, even when username/password are configured.
+Create that key through your Zetaris console and grant access only to the
+agent datasource/views.
+
+1. Apply migration `20261027_0008` before registering the views:
+
+   ```bash
+   cd backend
+   uv run --env-file ../.env alembic upgrade head
+   ```
+
+   It creates seven `agent_*` PostgreSQL views. UUIDs, JSON constraints and
+   pgvector embeddings are exposed as JDBC-safe strings; authentication
+   secrets and H-MEM internals are not exposed. The chunk view only exposes
+   indexed documents with matching chunk/document IPOs; facts must be
+   verified; rejected calendar proposals do not suppress dates.
+
+2. Ensure **both network paths** work: backend -> Zetaris API, and Zetaris
+   driver -> Mostro PostgreSQL. `localhost` inside a container means that
+   container, not the host or another service. The supplied Mostro and Zetaris
+   compose files are separate projects, so their default networks do not
+   communicate automatically.
+
+   For existing containers, one local setup is a dedicated bridge:
+
+   ```bash
+   docker network create mostro-zetaris
+   docker network connect --alias mostro-postgres mostro-zetaris <mostro-postgres-container>
+   docker network connect --alias zetaris-api mostro-zetaris <zetaris-api-container>
+   docker network connect mostro-zetaris <zetaris-driver-container>
+   docker network connect mostro-zetaris <mostro-app-container>
+   ```
+
+   Use actual container names from `docker ps`, and run the create/connect
+   commands only when the network/connections do not already exist. These
+   survive restarts, but must be reapplied after container recreation (or
+   declared in your deployment's compose overlays). Explicit aliases avoid
+   confusing Zetaris's own `postgres` metastore with Mostro's database.
+   Keep the Zetaris metastore on its own network; do not attach it here.
+   For this setup, set `ZETARIS_REST_URL=http://zetaris-api:8888/api/v1.0`.
+   A backend running on the host instead uses `http://localhost:8888/api/v1.0`.
+
+3. Create a dedicated PostgreSQL login with `CONNECT` on the Mostro database,
+   `USAGE` on its schema, and **SELECT only on the seven views**. Do not give
+   Zetaris the application's database superuser credentials. In Zetaris's
+   SQL Workspace, register the JDBC datasource using that login:
+
+   ```sql
+   CREATE DATASOURCE mostro DESCRIBE BY "Mostro agent context" OPTIONS (
+     jdbcdriver "org.postgresql.Driver",
+     jdbcurl "jdbc:postgresql://mostro-postgres:5432/mostro",
+     username "YOUR_READ_ONLY_LOGIN",
+     password "YOUR_READ_ONLY_PASSWORD",
+     fetchsize "1000"
+   )
+   ```
+
+   Then register the seven native PostgreSQL views through Zetaris's documented
+   `CREATE DATASOURCE VIEW` command (each statement separately). This does not
+   depend on whether your JDBC metadata discovery includes database views:
+
+   ```sql
+   CREATE DATASOURCE VIEW agent_ipos FROM mostro AS SELECT * FROM public.agent_ipos
+   CREATE DATASOURCE VIEW agent_chunks FROM mostro AS SELECT * FROM public.agent_chunks
+   CREATE DATASOURCE VIEW agent_profiles FROM mostro AS SELECT * FROM public.agent_profiles
+   CREATE DATASOURCE VIEW agent_knowledge FROM mostro AS SELECT * FROM public.agent_knowledge
+   CREATE DATASOURCE VIEW agent_history FROM mostro AS SELECT * FROM public.agent_history
+   CREATE DATASOURCE VIEW agent_facts FROM mostro AS SELECT * FROM public.agent_facts
+   CREATE DATASOURCE VIEW agent_proposals FROM mostro AS SELECT * FROM public.agent_proposals
+   SHOW DATASOURCE TABLES mostro
+   ```
+
+   The names must resolve as `mostro.agent_ipos`, etc. Adjust the JDBC
+   hostname/database/schema to your installation. `ZETARIS_DATASOURCE` changes
+   the datasource namespace if you register it under a different name.
+
+4. Fill the five Zetaris variables in the root `.env` (see `.env.example`),
+   then run the checks from the backend directory:
+
+   ```bash
+   uv run --env-file ../.env python -m scripts.check_zetaris
+   # Optional: also verify login, actual evidence, learning, history and dates.
+   uv run --env-file ../.env python -m scripts.check_zetaris --login \
+     --ipo-id <ipo-uuid> --user-id <user-uuid> --session-id <chat-session-uuid>
+   ```
+
+   No paid model/embedding calls are made. The check validates REST
+   connectivity, all registered view columns, and Spark cosine arithmetic.
+   The optional IDs exercise the real repository queries. Existing chunks
+   must be embedded with the configured model first (see Voyage setup).
+
+**Vector retrieval:** the database's pgvector `<=>` operator and HNSW index are
+not available to Spark SQL. Zetaris parses the view's float-vector text and
+computes cosine scores, filters by IPO/model, sorts, and returns top-k before
+the REST result is read. No arbitrary first-N candidate truncation or
+client-side vector scan is used. This is exact retrieval, but scans the
+filtered vectors in Zetaris rather than using PostgreSQL's HNSW index; assess
+latency on large corpora. Hybrid/full-text fusion remains roadmap work.
+Do not cache/materialize the user-context views: subsequent turns need fresh
+committed profile/progression/history data.
 
 ### 6.8 Logging and tracing
 
@@ -297,7 +421,7 @@ The agent must write logs to **both the console and the `logs/` folder**, so a d
 |---|---|---|
 | Fast LLM | DeepSeek flash model | Router, query rewriting, evaluator |
 | Main LLM | DeepSeek pro model | Generation, quiz grading, key-fact extraction, summaries |
-| Embeddings | Voyage AI (`voyage-multimodal-3.5`, 1024 dimensions) | Chunks, queries, glossary |
+| Embeddings | Voyage AI text embeddings (`voyage-3.5`, 1024 dimensions) | Prospectus chunks and queries |
 
 Check the provider docs for current model names before changing them (DeepSeek renamed its models in 2026). If the embedding model or dimension changes, **every vector must be re-embedded** and the `VECTOR(n)` columns migrated. Voyage supports 2048 dimensions, but pgvector cannot HNSW-index plain `vector` columns above 2000 dimensions, so stay at 1024.
 
@@ -383,6 +507,7 @@ erDiagram
             string chunk_type
             text content
             vector embedding
+            string embedding_model
             tsvector fts
             int page_number
             string section_path }
@@ -490,7 +615,7 @@ Notes:
 | Auth | JWT (`pyjwt`), password hashing (`pwdlib[argon2]`), OAuth2 password form for Swagger |
 | Agent | LangGraph, `langchain-core`, `langchain-deepseek` |
 | LLM | DeepSeek |
-| Embeddings | Voyage AI over HTTP (`httpx`), adapter in `ai/llm/embeddings.py` |
+| Embeddings | Voyage AI over HTTP (`httpx`), adapter in `backend/app/services/embeddings.py` |
 | Database | PostgreSQL 17, pgvector (HNSW), full-text search |
 | DB access | SQLAlchemy 2 (async), psycopg 3, Alembic |
 | Scheduler | APScheduler (reminders) |
@@ -499,6 +624,7 @@ Notes:
 | Resilience and logging | `tenacity`, `structlog` |
 | Data layer sponsor | Zetaris |
 | Usage tracking sponsor | Meterless |
+| Agent memory | Local Python implementation of Meterless H-MEM (separate from token tracking and evidence retrieval) |
 | Tests | pytest, pytest-asyncio, httpx, respx |
 | Packaging | Docker (multi-stage), Docker Compose |
 | Dev environment | Cursor (with `AGENTS.md`) |
@@ -624,10 +750,59 @@ uv add --optional ingest docling pymupdf
 
 ### Known gotchas
 
-- **Voyage rate limits.** Without a payment method, the free trial allows only 3 requests and 10K tokens per minute. Ingesting a prospectus or running the retrieval loop will be throttled or fail. Add a payment method (higher limits), and keep the throttling in `ai/llm/rate_limit.py`.
+- **Voyage rate limits.** Limits depend on your account and model. The adapter retries HTTP 429, 5xx and transport failures with bounded backoff and honors `Retry-After` (up to 60 seconds; longer waits fail explicitly). It does not provide a cross-process rate limiter. Reduce `EMBEDDING_BATCH_SIZE` for lower token limits or unusually long chunks.
 - **Demo seed must not call the embedding API.** `data/demo/` ships precomputed embeddings with the same model and dimension as the config. If you change the embedding model, regenerate them.
 - **Docker log folder permissions.** The container runs as a non-root user. Run `mkdir -p logs && chmod 777 logs` before `docker compose up` so it can write to the bind mount.
-- **Embedding dimension is fixed in the column type.** `EMBEDDING_DIM` must equal the `VECTOR(n)` size (1024).
+- **Embedding dimension is fixed in the column type.** `EMBEDDING_DIMENSION` is validated as 1024. Supporting another dimension requires a schema/index migration and re-embedding.
+
+### Voyage embeddings in the current backend
+
+The implementation follows Voyage's [text embedding API](https://docs.voyageai.com/reference/embeddings-api)
+and [retrieval guidance](https://docs.voyageai.com/docs/embeddings).
+Set `EMBEDDING_API_KEY` in the root `.env`; `EMBEDDING_API_URL` defaults to
+`https://api.voyageai.com/v1/embeddings` (origin and `/v1` base URLs also work).
+The default model remains `voyage-3.5` to avoid silently changing the embedding
+space. This adapter accepts text, not multimodal PDF/image payloads.
+
+Queries use `input_type="query"`; stored chunks use `input_type="document"`,
+with issuer and section context prepended. The adapter requests float output,
+disables silent truncation, batches document inputs, and validates response
+counts, indices, model, dimensions, and finite non-zero vectors. Voyage enforces
+per-text context and aggregate batch token limits; oversized inputs fail
+explicitly rather than producing partial or truncated evidence.
+
+Apply migration `20261027_0007` **before starting the updated backend**, then
+re-embed each existing document. Unknown-model vectors intentionally remain
+unsearchable until re-embedded; retrieval only searches vectors whose
+`chunks.embedding_model` matches `EMBEDDING_MODEL`.
+
+From the repository root, using the backend environment:
+
+```bash
+# DATABASE_URL and EMBEDDING_API_KEY must be configured.
+cd backend
+uv run --env-file ../.env alembic upgrade head
+uv run --env-file ../.env python -m scripts.embed_document <document-uuid>
+```
+
+The command operates on chunks already in PostgreSQL; PDF parsing/chunking is
+not part of this entrypoint. It replaces all vectors for one document in a
+single transaction, records their model, and leaves document review/status
+unchanged. A provider failure rolls back instead of leaving partially updated
+vectors. Changing `EMBEDDING_MODEL` requires re-running this command for every
+document. Do not label old vectors with a model name without regenerating them.
+Repeated identical rewritten queries reuse their vector within one retrieval
+request, without retaining user text in a global cache. Local H-MEM feature
+hashing remains separate from Voyage prospectus evidence retrieval.
+
+Run the isolated, mocked provider/retrieval tests without PostgreSQL, Redis,
+or paid API calls:
+
+```bash
+cd backend
+PYTEST_DISABLE_PLUGIN_AUTOLOAD=1 uv run python -m pytest -p pytest_asyncio.plugin \
+  --confcutdir=tests/unit tests/unit/test_embeddings.py tests/unit/test_jev.py -q
+```
 
 ## 11. Useful commands
 
@@ -707,18 +882,30 @@ All configuration comes from environment variables, read only in `ai/config.py`.
 | `DEMO_USER_EMAIL`, `DEMO_USER_PASSWORD` | Demo user created by the seed | demo only |
 | `DEEPSEEK_API_KEY`, `DEEPSEEK_BASE_URL` | LLM access | `https://api.deepseek.com` |
 | `LLM_MODEL_FAST`, `LLM_MODEL_MAIN` | Router/evaluator vs generation models | check provider docs |
-| `VOYAGE_API_KEY` | Embeddings access | |
-| `EMBEDDING_MODEL` | Embedding model | `voyage-multimodal-3.5` |
-| `EMBEDDING_DIM` | Must match `VECTOR(n)` | `1024` |
-| `EMBEDDING_TIMEOUT_SECONDS`, `PROVIDER_MAX_ATTEMPTS` | HTTP timeout and retries | `30`, `3` |
-| `EMBEDDING_REQUESTS_PER_MINUTE`, `EMBEDDING_TOKENS_PER_MINUTE` | Client-side throttling (stay under your tier) | free trial: `3`, `10000` |
-| `JEV_MIN_SCORE` | Evaluator pass threshold | `0.70` |
-| `JEV_MAX_TRIES` | Retrieval attempts before abstaining | `3` |
+| `EMBEDDING_API_KEY` | Voyage bearer API key | unset |
+| `EMBEDDING_API_URL` | Voyage text embedding endpoint (origin and `/v1` base also accepted) | `https://api.voyageai.com/v1/embeddings` |
+| `EMBEDDING_MODEL` | Text embedding model; re-embed documents when changed | `voyage-3.5` |
+| `EMBEDDING_DIMENSION` | Fixed to match the current `VECTOR(1024)` schema | `1024` |
+| `EMBEDDING_BATCH_SIZE` | Maximum texts per request (1-1000); also respect Voyage token limits | `32` |
+| `EMBEDDING_MAX_ATTEMPTS` | Bounded attempts per HTTP request (1-6) | `3` |
+| `MODEL_TIMEOUT_SECONDS` | Shared provider HTTP timeout | `60` |
+| `JEV_ENDPOINT` | Enable JEV intent routing and evidence evaluation; accepts the full endpoint, API origin, or `/v1` base | unset; example: `https://api.typesafe.ai/v1/systemone` |
+| `JEV_API_KEY` | TypeSafe bearer API key for both routing and evaluation | unset |
+| `JEV_MODEL` | System One model alias | `jev-latest` |
+| `HMEM_ENABLED` | Enable local H-MEM capture, recall and governance APIs; apply migration `20261027_0006` first | `true` |
+| `RETRIEVAL_THRESHOLD` | Evidence sufficiency probability required to answer | `0.70` |
+| `RETRIEVAL_MAX_ATTEMPTS` | Retrieval attempts before abstaining | `3` |
 | `QUIZ_EVERY_N_TURNS` | Quiz cadence | `4` |
 | `RETRIEVAL_CANDIDATES`, `RERANK_TOP_K` | Retrieval sizes | `30`, `6` |
 | `MESSAGE_RATE_LIMIT_PER_MINUTE` | Per-user limit on message endpoints | `20` |
-| `ZETARIS_ENABLED` | Use Zetaris (otherwise direct Postgres fallback) | `true` for evaluation |
-| `ZETARIS_URL`, `ZETARIS_*` credentials | Zetaris connection | <!-- TODO: confirm method --> |
+| `ZETARIS_REST_URL` | Required agent harness; REST origin or `/api/v1.0` base, not UI proxy | unset; host example `http://localhost:8888/api/v1.0` |
+| `ZETARIS_ORG_ID` | Numeric organization ID | unset |
+| `ZETARIS_API_KEY` | Required bearer API token for SQL | unset |
+| `ZETARIS_USERNAME`, `ZETARIS_PASSWORD` | Optional Basic-auth login diagnostic; not SQL-token substitutes | unset |
+| `ZETARIS_DATASOURCE` | Registered namespace containing the seven `agent_*` views | `mostro` |
+| `ZETARIS_TIMEOUT_SECONDS` | Timeout per REST request | `60` |
+| `ZETARIS_PAGE_SIZE` | SQL records per page, 1-100 | `100` |
+| `ZETARIS_MAX_ROWS` | Fail rather than truncate results above this bound | `10000` |
 | `METERLESS_ENABLED`, `METERLESS_BASE_URL`, `METERLESS_API_KEY` | Usage tracking | <!-- TODO: confirm --> |
 
 ## 13. Testing and evaluation
@@ -732,19 +919,157 @@ Language-model systems fail silently, so we measure.
 
 Metrics: retrieval recall@k and MRR, answer faithfulness, citation correctness, abstention correctness, **average evaluator tries**, route accuracy, quiz grading agreement, cost per answer.
 
+### JEV integration checks
+
+The backend sends `model`, `state`, and named `questions` to the
+[System One API](https://docs.typesafe.ai/api/system-one). Intent routing uses
+Choice; retrieval uses Noul to ask whether the passages explicitly answer the
+original question. Noul is a probability of sufficient evidence, not a relevance
+rating or a separate confidence value. Query rewrites only affect retrieval,
+not the question evaluated by JEV.
+
+Set `JEV_ENDPOINT`, `JEV_API_KEY`, and optionally `JEV_MODEL` in `.env`.
+Leaving `JEV_ENDPOINT` unset or empty selects keyword routing and similarity
+evaluation. A configured JEV service failure produces an agent error; it never
+silently falls back to those baselines. Only the routing message and, for
+evaluation, the query and retrieved passages are sent to TypeSafe.
+
+Run the isolated, mocked-HTTP contract and retrieval-loop tests without
+Postgres, Redis, or paid API calls:
+
+```bash
+cd backend
+uv run --extra dev pytest --confcutdir=tests/unit tests/unit/test_jev.py
+```
+
+These tests verify payloads, bearer authentication, endpoint normalization,
+response validation, threshold boundaries, retry/refusal behavior, and error
+propagation. They do not measure the live model's routing or judgment accuracy.
+
+### Meterless H-MEM
+
+The backend implements the [H-MEM architecture](https://github.com/Meterless/Meterless/tree/main/engines/hmem),
+following its `AGENTS.md` and runnable reference at upstream revision
+`70ca80fe88ad8d27288501e8dd08b091ed38c095`. H-MEM is **not** a hosted metering
+API. It runs locally and needs no Meterless key, proxy, or separate Node service.
+Existing request logging/token reporting is independent of this integration.
+
+Apply the migration before starting the updated backend:
+
+```bash
+cd backend
+uv run alembic upgrade head
+```
+
+Set `HMEM_ENABLED=false` to retain the pre-memory agent path. By default:
+
+- Each authenticated user has their own versioned state in `hmem_states`;
+  chat and IPO (`missionId`) scope prevent unrelated-session recall. Optional
+  goal-run scoping is supported by the engine. Unscoped records can be shared
+  only inside the same user's state.
+- Memories retain confidence, source, typed provenance, entities, namespace,
+  tier, access statistics, peer links, replacement edges, and synthesis lineage.
+  Embeddings and legacy provenance are backfilled during hydration; malformed
+  or sourceless state is rejected rather than silently discarded.
+- The agent mines user messages/corrections and completed model responses,
+  recalls previous memories, and injects domain-grouped context into generation.
+  `answer.memory_trace` identifies the strategy, retrieval reason, memory IDs
+  and relevance scores.
+- Recall uses the canonical weighted formula, a final-score threshold of
+  **0.35**, and at most **5** memories. Recency decays with a **14-day** time
+  constant. Superseded records are penalized by **0.20**, not deleted.
+- Helpful feedback adds **0.05** confidence and one access; not-helpful subtracts
+  **0.03**; wrong subtracts **0.20** and adds `review`. Confidence stays in [0, 1].
+- Contradictions are recorded and queued. Auto-resolution is an explicit action
+  gated at decision confidence **0.70**. Human resolution supports keeping
+  either/both, merging, or retiring both. Losing records remain auditable.
+- Dreaming creates proposals only. Human approval is required before an insight
+  or invariant becomes long-term memory; rejected proposals create no memory.
+- Sleep requires a fresh reviewed preview, creates a durable backup, then
+  consolidates stale short-term records (**7 days**), archives unreferenced
+  low-access records (**30 days**, access count <= **2**), and synthesizes eligible
+  groups (cosine >= **0.82**). Current replacements, derived records, graph hubs,
+  and pending-review sources are protected. Restore preserves the audit ledger.
+
+**Evidence boundary:** memory is unverified personalization, including remembered
+model responses. It cannot satisfy JEV's evidence gate, provide prospectus
+citations, or authorize calendar dates. Verified retrieval runs independently
+before memory reinjection.
+
+**Hackathon deployment choices:** all tiers are checkpointed in Postgres for
+request/worker continuity, with `short_term` session-scoped rather than held in
+a process-global map. Memory plus audit writes share a transaction; a per-user
+row lock prevents lost updates (concurrent streams from that user serialize).
+The local 64-dimensional feature-hash embedder mirrors the reference's lightweight
+approach; it is not the Voyage/pgvector evidence embedder. Default mining is
+deterministic direct capture, with an optional model-extraction hook and a logged
+fallback on malformed/unavailable extraction. Dreaming/sleep are explicit
+operations, not unattended background jobs. Large-scale memory indexing and a
+dedicated frontend memory dashboard are not included.
+
+Authenticated API surfaces (the API's existing bearer authentication applies):
+
+| Endpoint | Purpose |
+|---|---|
+| `GET /memory` | Inspect memories, tier/domain health counts, proposals, conflicts and maintenance reports |
+| `POST /memory/events` | Capture `chat_message`, `user_correction`, `file_save`, `file_open`, `file_edit`, `model_response`, or `plan_completion`; requires an owned `chatId` |
+| `POST /memory/{id}/feedback` | Submit `{"kind":"helpful"}`, `not_helpful`, or `wrong` |
+| `DELETE /memory/{id}` | Remove an active memory while retaining its audit history |
+| `POST /memory/dream` | Generate pending proposals |
+| `POST /memory/proposals/{id}/review` | Approve/reject with `{"approve":true}` or `false` |
+| `POST /memory/conflicts/scan` | Detect contradictions |
+| `POST /memory/conflicts/{id}/resolve` | Human resolution with `strategy` and, for merge, `content` |
+| `POST /memory/conflicts/{id}/auto-resolve` | Apply the decision-confidence gate or leave queued |
+| `GET /memory/sleep/preview` | Read-only maintenance plan |
+| `POST /memory/sleep` | Execute `{"operation":"execute","plan":...}` or restore `{"operation":"restore","backupId":"..."}` |
+| `GET /memory/ledger` | Paginated append-only audit export; optional `memory_id`, `after_id`, and `limit` |
+
+For file/document capture, pass `documentName` alongside a file event; input is
+capped at 8,000 characters and facts enter the working tier. There is no editor
+file watcher or document-upload service in this backend, so those producers call
+the event endpoint explicitly. HTTP/agent errors are not silently converted to
+successful memory operations.
+
+Run local memory and existing agent regressions without paid APIs:
+
+```bash
+cd backend
+uv run --extra dev pytest --confcutdir=tests/unit tests/unit tests/test_agent_logic.py
+```
+
+The Postgres integration tests skip unless `HMEM_TEST_DATABASE_URL` names a
+**disposable test database**, where they create and remove uniquely named test
+schemas. With it set, they verify the migration in both directions, persistence
+across repository instances, concurrent writes, owner isolation, API feedback
+and approval, backup/restore, and a two-turn agent recall flow.
+
+To run Meterless's actual TypeScript conformance runner against the Python engine,
+check out the upstream revision above and run from this repository's backend:
+
+```bash
+export PYTHONPATH="$PWD"
+export HMEM_PYTHON="$PWD/.venv/bin/python"
+export HMEM_IMPL="$PWD/tests/unit/hmem_adapter.ts"
+npx --yes --package tsx tsx /path/to/Meterless/engines/hmem/conformance/runner.ts
+```
+
+The adapter only translates calls/JSON: the Python engine executes every operation.
+All **13 upstream checks** pass; local tests additionally cover exact ranking
+arithmetic, scoping, maintenance protection, restore, and database/agent integration.
+
 **Rule:** run the evals after every change to a prompt, model, threshold, retrieval setting, or chunking.
 
 ## 14. Roadmap
 
 Ordered by risk: data and retrieval first, features after. Tier labels match `docs/api-map.md` (C = core, S = support, X = stretch).
 
-> **Current status:** config, logging, retry modules, and a first embeddings adapter (Gemini) exist. The adapter must be **migrated to Voyage AI**, and throttling added. Everything else below is open. Tick boxes as phases finish.
+> **Current status:** the backend has a Voyage text embedding adapter with document batching, bounded retries, response validation, model-scoped retrieval, and an existing-chunk indexing command (see above). Full PDF ingestion and cross-process rate limiting remain open. The roadmap below also includes planned components.
 
 - [ ] **Phase 0: Foundation.** `config.py`, `core/logging.py` (console + `logs/app.log` + `logs/agent.log`, redaction), errors, middleware (request id, access log), DB session, Alembic baseline from section 7, `/health`, `/v1/meta`.
 - [ ] **Phase 1: Auth and users.** Register, login, token, refresh, logout, `users/me`, profile, onboarding questions. Admin bootstrap. *Needed by every other route.*
 - [ ] **Phase 2: LLM and embedding layers.** DeepSeek client, Voyage client with batching and throttling, Meterless usage wrapper, fakes for tests.
 - [ ] **Phase 3: Ingestion and data.** Parse, chunk, embed, store; key-fact extraction with review routes; section summaries; admin IPO and document routes; demo data package in `data/demo/` with precomputed embeddings; demo seed.
-- [ ] **Phase 4: Retrieval and evaluator.** Hybrid search through the Zetaris adapter (with direct fallback), RRF, the JEV evaluator, the retrieval debug route. Start retrieval evals.
+- [ ] **Phase 4: Retrieval and evaluator.** Zetaris REST context reads and exact vector retrieval are implemented without direct fallback. Hybrid search/RRF, the retrieval debug route and retrieval evals remain.
 - [ ] **Phase 5: Agent graph v1.** Router, rewriter, retriever, evaluator loop, abstain, refusal, context builder, generate, formatter. Chat routes (`ask`, sessions, messages), trace route, agent logging. *First end-to-end slice.*
 - [ ] **Phase 6: Education.** Edu route, glossary routes, knowledge states, quiz engine (on-trigger and on-demand), grading, mastery updates.
 - [ ] **Phase 7: Calendar.** Calendar route and direct proposals, confirm/reject, reminders, scheduler, `run-due` time travel, `.ics`.

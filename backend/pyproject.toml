@@ -1,4 +1,4 @@
-[build-system]
+    [build-system]
 requires = ["setuptools>=75"]
 build-backend = "setuptools.build_meta"
 
@@ -9,6 +9,7 @@ description = "User management and authentication API for a trading application"
 requires-python = ">=3.12"
 dependencies = [
     "fastapi>=0.115.0",
+    "sse-starlette>=3.0.0",
     "uvicorn[standard]>=0.32.0",
     "pydantic-settings>=2.6.0",
     "email-validator>=2.2.0",
@@ -25,8 +26,6 @@ dependencies = [
     "redis>=5.2.0",
     "zxcvbn>=4.4.28",
     "httpx>=0.28.0",
-    "sse-starlette>=2.2.1",
-    "structlog>=24.4.0",
     "qrcode>=8.0",
 ]
 

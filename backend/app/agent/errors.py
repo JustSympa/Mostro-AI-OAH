@@ -12,3 +12,7 @@ class RefusalError(AgentError):
 
 class ModelError(AgentError):
     """Raised when the configured language model cannot produce a response."""
+
+
+class DataHarnessError(AgentError):
+    """Raised when Zetaris cannot provide validated agent context."""
