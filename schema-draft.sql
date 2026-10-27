@@ -1,30 +1,16 @@
 -- Enable Required Extensions
-CREATE EXTENSION IF NOT EXISTS "uuid-ossp";
 CREATE EXTENSION IF NOT EXISTS "vector";
 
 -- ============================================================================
 -- 1. USER & PROFILE MANAGEMENT
 -- ============================================================================
 
-CREATE TABLE users (
-    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
-    email VARCHAR(255) UNIQUE NOT NULL,
-    password_hash VARCHAR(255) NOT NULL,
-    full_name VARCHAR(255) NOT NULL,
-    created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
-);
-
-CREATE TABLE user_profiles (
-    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
-    user_id UUID UNIQUE NOT NULL REFERENCES users(id) ON DELETE CASCADE,
-    -- Flexible JSONB onboarding store (risk tolerance, capital, holdings, experience)
-    onboarding_answers JSONB DEFAULT '{}'::jsonb NOT NULL,
-    preferred_language VARCHAR(10) DEFAULT 'en' NOT NULL, -- 'en', 'fr'
-    updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
-);
+-- Add the following to user
+-- onboarding_answers JSONB DEFAULT '{}'::jsonb NOT NULL,
+-- preferred_language VARCHAR(10) DEFAULT 'en' NOT NULL, -- 'en', 'fr'
 
 CREATE TABLE glossary_terms (
-    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     term VARCHAR(150) UNIQUE NOT NULL,
     category VARCHAR(100) DEFAULT 'general_investing' NOT NULL,
     definition TEXT NOT NULL,
@@ -33,7 +19,7 @@ CREATE TABLE glossary_terms (
 );
 
 CREATE TABLE user_knowledge_states (
-    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
     glossary_term_id UUID NOT NULL REFERENCES glossary_terms(id) ON DELETE CASCADE,
     mastery_level VARCHAR(50) DEFAULT 'introduced' NOT NULL, 
@@ -48,16 +34,17 @@ CREATE TABLE user_knowledge_states (
 -- ============================================================================
 
 CREATE TABLE ipos (
-    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     company_name VARCHAR(255) NOT NULL,
     symbol VARCHAR(50) NOT NULL,
     issuer_country VARCHAR(100) NOT NULL,
+    authorized_sources JSONB NOT NULL DEFAULT '[]'::jsonb,
     status VARCHAR(50) DEFAULT 'active' NOT NULL,
     created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
 );
 
 CREATE TABLE documents (
-    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     ipo_id UUID NOT NULL REFERENCES ipos(id) ON DELETE CASCADE,
     title VARCHAR(255) NOT NULL,
     file_hash VARCHAR(64) UNIQUE NOT NULL, -- SHA-256 deduplication
@@ -66,7 +53,7 @@ CREATE TABLE documents (
 );
 
 CREATE TABLE chunks (
-    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     document_id UUID NOT NULL REFERENCES documents(id) ON DELETE CASCADE,
     ipo_id UUID NOT NULL REFERENCES ipos(id) ON DELETE CASCADE, -- Denormalized for zero-join retrieval filtering
     content TEXT NOT NULL,
@@ -80,7 +67,7 @@ CREATE INDEX idx_chunks_embedding ON chunks USING hnsw (embedding vector_cosine_
 CREATE INDEX idx_chunks_ipo_id ON chunks(ipo_id);
 
 CREATE TABLE key_facts (
-    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     ipo_id UUID NOT NULL REFERENCES ipos(id) ON DELETE CASCADE,
     fact_type VARCHAR(100) NOT NULL, -- 'opening_date', 'closing_date', 'min_subscription', etc.
     value VARCHAR(255) NOT NULL,
@@ -90,7 +77,7 @@ CREATE TABLE key_facts (
 );
 
 CREATE TABLE section_summaries (
-    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     ipo_id UUID NOT NULL REFERENCES ipos(id) ON DELETE CASCADE,
     section_name VARCHAR(255) NOT NULL,
     summary_text TEXT NOT NULL
@@ -101,7 +88,7 @@ CREATE TABLE section_summaries (
 -- ============================================================================
 
 CREATE TABLE chat_sessions (
-    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
     ipo_id UUID NOT NULL REFERENCES ipos(id) ON DELETE CASCADE,
     turn_count INT DEFAULT 0 NOT NULL,
@@ -109,7 +96,7 @@ CREATE TABLE chat_sessions (
 );
 
 CREATE TABLE messages (
-    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     chat_session_id UUID NOT NULL REFERENCES chat_sessions(id) ON DELETE CASCADE,
     sender VARCHAR(20) NOT NULL, -- 'user', 'assistant'
     content TEXT NOT NULL,
@@ -120,7 +107,7 @@ CREATE TABLE messages (
 );
 
 CREATE TABLE message_citations (
-    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     message_id UUID NOT NULL REFERENCES messages(id) ON DELETE CASCADE,
     chunk_id UUID NOT NULL REFERENCES chunks(id) ON DELETE CASCADE,
     quote_text TEXT,
@@ -128,7 +115,7 @@ CREATE TABLE message_citations (
 );
 
 CREATE TABLE calendar_proposals (
-    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     chat_session_id UUID NOT NULL REFERENCES chat_sessions(id) ON DELETE CASCADE,
     key_fact_id UUID REFERENCES key_facts(id) ON DELETE SET NULL,
     event_title VARCHAR(255) NOT NULL,
