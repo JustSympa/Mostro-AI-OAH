@@ -25,7 +25,24 @@ class Settings(BaseSettings):
     database_url: str = Field(
         default="postgresql+asyncpg://mostro:mostro@postgres:5432/mostro"
     )
+    userdb_url: str | None = Field(default=None)
     redis_url: str = Field(default="redis://redis:6379/0")
+    meterless_proxy_url: str = Field(
+        default="http://nightshift:8080/api/v1/completions"
+    )
+    meterless_usage_url: str | None = Field(default=None)
+    meterless_api_key: str | None = Field(default=None)
+    nemetron_bolt_url: str | None = Field(default=None)
+    nemetron_bolt_model: str = Field(default="nemetron-bolt")
+    embedding_api_url: str | None = Field(default=None)
+    embedding_api_key: str | None = Field(default=None)
+    embedding_model: str = Field(default="voyage-3.5")
+    embedding_dimension: int = Field(default=1024)
+    model_timeout_seconds: float = Field(default=60.0)
+    retrieval_threshold: float = Field(default=0.70)
+    retrieval_max_attempts: int = Field(default=3)
+    input_cost_per_million_tokens: float = Field(default=0.0)
+    output_cost_per_million_tokens: float = Field(default=0.0)
     jwt_secret: str = Field(default=DEV_JWT_SECRET)
     aes_key: str = Field(default=DEV_AES_KEY_HEX)
     access_token_ttl_seconds: int = Field(default=900)
@@ -53,7 +70,18 @@ class Settings(BaseSettings):
     def cors_origins(self) -> list[str]:
         return [o.strip() for o in self.cors_allowed_origins.split(",") if o.strip()]
 
-    @field_validator("google_client_id", "google_client_secret", "cookie_domain", mode="before")
+    @field_validator(
+        "google_client_id",
+        "google_client_secret",
+        "cookie_domain",
+        "userdb_url",
+        "meterless_usage_url",
+        "meterless_api_key",
+        "nemetron_bolt_url",
+        "embedding_api_url",
+        "embedding_api_key",
+        mode="before",
+    )
     @classmethod
     def empty_str_to_none(cls, value: object) -> object:
         if isinstance(value, str) and not value.strip():
@@ -101,6 +129,14 @@ class Settings(BaseSettings):
     @property
     def is_production(self) -> bool:
         return self.env.lower() == "production"
+
+    @property
+    def agent_userdb_url(self) -> str:
+        return self.userdb_url or self.database_url
+
+    @property
+    def model_url(self) -> str:
+        return self.nemetron_bolt_url or self.meterless_proxy_url
 
     @property
     def google_oauth_configured(self) -> bool:

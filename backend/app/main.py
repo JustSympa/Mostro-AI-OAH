@@ -12,11 +12,14 @@ from slowapi.middleware import SlowAPIMiddleware
 from sqlalchemy import text
 
 from app.api.routes.auth.router import router as auth_router
+from app.api.routes.agent.router import router as agent_router
 from app.api.routes.profile.router import router as profile_router
 from app.config import get_settings
 from app.core.limiter import limiter
 from app.db.session import dispose_engine, get_engine
 from app.deps.redis import close_redis, get_redis
+from app.middleware.meterless import MeterlessMiddleware
+from app.services.db import dispose_userdb_engine
 
 logging.basicConfig(
     level=logging.INFO,
@@ -34,6 +37,7 @@ async def lifespan(_app: FastAPI):
             "/auth/google endpoints will return 503; email/password + 2FA remain available."
         )
     yield
+    await dispose_userdb_engine()
     await close_redis()
     await dispose_engine()
 
@@ -63,8 +67,10 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+app.add_middleware(MeterlessMiddleware)
 app.include_router(auth_router)
 app.include_router(profile_router)
+app.include_router(agent_router)
 
 
 @app.get("/health")

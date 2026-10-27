@@ -13,6 +13,7 @@ dependencies = [
     "pydantic-settings>=2.6.0",
     "email-validator>=2.2.0",
     "sqlalchemy[asyncio]>=2.0.36",
+    "pgvector>=0.3.6",
     "asyncpg>=0.30.0",
     "alembic>=1.14.0",
     "argon2-cffi>=23.1.0",
@@ -24,6 +25,8 @@ dependencies = [
     "redis>=5.2.0",
     "zxcvbn>=4.4.28",
     "httpx>=0.28.0",
+    "sse-starlette>=2.2.1",
+    "structlog>=24.4.0",
     "qrcode>=8.0",
 ]
 
