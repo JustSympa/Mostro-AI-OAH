@@ -1,23 +1,12 @@
-# ╔══════════════════════════════════════════════════════════════╗
-# ║          Mostro AI — Full-Stack Docker Compose               ║
-# ║  Services: postgres · redis · backend (FastAPI) · frontend   ║
-# ║                                                              ║
-# ║  Quick start:                                                ║
-# ║    cp .env.example .env          # first time only           ║
-# ║    docker compose up --build     # build & run everything    ║
-# ║    docker compose up             # subsequent runs           ║
-# ║                                                              ║
-# ║  URLs:                                                       ║
-# ║    Frontend  →  http://localhost:3000                        ║
-# ║    Backend   →  http://localhost:8000                        ║
-# ║    API Docs  →  http://localhost:8000/docs                   ║
-# ╚══════════════════════════════════════════════════════════════╝
+# Docker Compose for the FastAPI app + Postgres + Redis
+# The root Dockerfile builds the Next.js frontend as static assets and copies them
+# into the final app image, where FastAPI serves them on the same port.
+
+name: mostro-ai-oah
 
 services:
-
-  # ─────────────────────────────── PostgreSQL ───────────────────────────────
   postgres:
-    image: postgres:16-alpine
+    image: pgvector/pgvector:pg16
     restart: unless-stopped
     environment:
       POSTGRES_USER: ${POSTGRES_USER:-mostro}
@@ -34,7 +23,6 @@ services:
     networks:
       - internal
 
-  # ─────────────────────────────── Redis ───────────────────────────────────
   redis:
     image: redis:7-alpine
     restart: unless-stopped
@@ -49,71 +37,42 @@ services:
     networks:
       - internal
 
-  # ─────────────────────────────── Backend (FastAPI) ────────────────────────
-  backend:
+  app:
     build:
-      context: ./backend
+      context: .
       dockerfile: Dockerfile
+      args:
+        NEXT_PUBLIC_API_URL: ${NEXT_PUBLIC_API_URL:-http://localhost:8000}
     restart: unless-stopped
     ports:
-      - "${BACKEND_PORT:-8000}:8000"
+      - "${APP_PORT:-8000}:8000"
     env_file:
       - .env
     environment:
-      # Override connection strings to use Docker service names
       DATABASE_URL: postgresql+asyncpg://${POSTGRES_USER:-mostro}:${POSTGRES_PASSWORD:-mostro}@postgres:5432/${POSTGRES_DB:-mostro}
       REDIS_URL: redis://redis:6379/0
+      NEXT_PUBLIC_API_URL: ${NEXT_PUBLIC_API_URL:-http://localhost:8000}
     depends_on:
       postgres:
         condition: service_healthy
       redis:
         condition: service_healthy
     healthcheck:
-      test:
-        [
-          "CMD",
-          "python",
-          "-c",
-          "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/health')"
-        ]
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/health').read()"]
       interval: 5s
-      timeout: 5s
-      retries: 10
-      start_period: 15s
+      timeout: 10s
+      retries: 15
+      start_period: 20s
     networks:
       - internal
       - public
 
-  # ─────────────────────────────── Frontend (Next.js) ──────────────────────
-  frontend:
-    build:
-      context: ./frontend
-      dockerfile: Dockerfile
-      args:
-        # Baked into the Next.js static bundle at build time.
-        # Points the browser at the backend API. Update for prod.
-        NEXT_PUBLIC_API_URL: ${NEXT_PUBLIC_API_URL:-http://localhost:8000}
-    restart: unless-stopped
-    ports:
-      - "${FRONTEND_PORT:-3000}:3000"
-    environment:
-      NODE_ENV: production
-    depends_on:
-      backend:
-        condition: service_healthy
-    networks:
-      - public
-
-# ─────────────────────────────── Networks ────────────────────────────────────
 networks:
-  # Internal network — postgres & redis are NOT reachable from the host
   internal:
     driver: bridge
-  # Public network — backend & frontend are reachable from the host
   public:
     driver: bridge
 
-# ─────────────────────────────── Volumes ─────────────────────────────────────
 volumes:
   postgres_data:
   redis_data:

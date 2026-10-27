@@ -1,6 +1,8 @@
+
+name: mostro-ai-oah-backend-only
 services:
   postgres:
-    image: postgres:16-alpine
+    image: pgvector/pgvector:pg16
     # Listen on 5433 inside the container (default is 5432).
     command: ["postgres", "-p", "5433"]
     environment:
