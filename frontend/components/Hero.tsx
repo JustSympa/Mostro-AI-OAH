@@ -2,6 +2,7 @@
 
 import React, { useState } from "react";
 import Link from "next/link";
+import Image from "next/image";
 import {
   CompassIcon,
   CalendarIcon,
@@ -233,9 +234,11 @@ export function Hero() {
 
                 <div className="flex items-center justify-between pb-3 border-b border-white/10 relative z-10">
                   <div className="flex items-center gap-2">
-                    <img
+                    <Image
                       src="/logo-icon.png"
                       alt="Mostro Icon"
+                      width={150}
+                      height={146}
                       className="w-6 h-6 rounded-md object-contain"
                     />
                     <span className="text-xs font-serif text-[#D4AF37] italic">

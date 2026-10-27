@@ -2,6 +2,7 @@
 
 import React, { useState, useEffect } from "react";
 import Link from "next/link";
+import Image from "next/image";
 import { SparklesIcon, MenuIcon, XIcon, ArrowUpRightIcon, ShieldCheckIcon } from "./Icons";
 import { isAuthenticated, getStoredEmail, logout, subscribeToAuth } from "../lib/auth";
 
@@ -32,9 +33,12 @@ export function Navbar() {
           {/* Logo & Brand (Using User-Provided Light Logo) */}
           <div className="flex items-center">
             <Link href="/" className="flex items-center group py-2">
-              <img
+              <Image
                 src="/logo-light.png"
                 alt="Mostro AI"
+                width={768}
+                height={235}
+                priority
                 className="h-9 sm:h-11 w-auto object-contain transition-transform group-hover:scale-[1.02]"
               />
             </Link>
@@ -42,41 +46,47 @@ export function Navbar() {
 
           {/* Desktop Navigation */}
           <nav className="hidden md:flex items-center gap-1 bg-white/70 backdrop-blur-md p-1.5 rounded-full border border-[#E8E5DE] shadow-xs">
-            <a
-              href="#learning-path"
+            {isLoggedIn && (
+              <Link
+                href="/dashboard"
+                className="px-4 py-2 text-sm font-semibold text-[#191C24] bg-white rounded-full shadow-xs border border-[#D4AF37]/40 flex items-center gap-1.5"
+              >
+                <SparklesIcon size={14} className="text-[#8A6A00]" />
+                Dashboard
+              </Link>
+            )}
+            <Link
+              href="/#learning-path"
               className="px-4 py-2 text-sm font-medium text-[#5F6470] hover:text-[#191C24] hover:bg-white rounded-full transition-all"
             >
               Financial Learning
-            </a>
-            <a
-              href="#ipo-calendar"
+            </Link>
+            <Link
+              href="/#ipo-calendar"
               className="px-4 py-2 text-sm font-medium text-[#5F6470] hover:text-[#191C24] hover:bg-white rounded-full transition-all"
             >
               IPO Calendar
-            </a>
-            <a
-              href="#news"
-              className="px-4 py-2 text-sm font-medium text-[#5F6470] hover:text-[#191C24] hover:bg-white rounded-full transition-all"
-            >
-              Market News
-            </a>
-            <a
-              href="#ai-assistant"
+            </Link>
+            <Link
+              href="/#ai-assistant"
               className="px-4 py-2 text-sm font-medium text-[#5F6470] hover:text-[#191C24] hover:bg-white rounded-full transition-all flex items-center gap-1.5"
             >
               <SparklesIcon size={14} className="text-[#8A6A00]" />
               AI Assistant
-            </a>
+            </Link>
           </nav>
 
           {/* Desktop Auth CTAs */}
           <div className="hidden md:flex items-center gap-3">
             {isLoggedIn ? (
               <div className="flex items-center gap-3">
-                <span className="text-xs font-semibold px-3 py-1.5 rounded-full bg-white/80 border border-[#E8E5DE] text-[#191C24] flex items-center gap-1.5">
+                <Link
+                  href="/dashboard"
+                  className="text-xs font-semibold px-3 py-1.5 rounded-full bg-white/80 border border-[#E8E5DE] text-[#191C24] flex items-center gap-1.5 hover:border-[#D4AF37] hover:bg-white transition-all shadow-xs"
+                >
                   <ShieldCheckIcon size={14} className="text-[#8A6A00]" />
-                  <span>{userEmail || "Authenticated"}</span>
-                </span>
+                  <span>{userEmail || "Dashboard"}</span>
+                </Link>
                 <button
                   onClick={handleLogout}
                   className="px-4 py-2 text-xs font-bold text-[#9E2D3A] hover:bg-rose-50 border border-rose-200/60 rounded-full transition-colors cursor-pointer"
@@ -135,13 +145,6 @@ export function Navbar() {
               📅 IPO Calendar & Discovery
             </a>
             <a
-              href="#news"
-              onClick={() => setMobileMenuOpen(false)}
-              className="px-3 py-2.5 rounded-lg text-base font-medium text-[#191C24] hover:bg-[#F8F7F4]"
-            >
-              📰 Curated Market News
-            </a>
-            <a
               href="#ai-assistant"
               onClick={() => setMobileMenuOpen(false)}
               className="px-3 py-2.5 rounded-lg text-base font-medium text-[#191C24] hover:bg-[#F8F7F4]"
@@ -152,6 +155,14 @@ export function Navbar() {
           <div className="pt-4 border-t border-[#E8E5DE] flex flex-col gap-2">
             {isLoggedIn ? (
               <>
+                <Link
+                  href="/dashboard"
+                  onClick={() => setMobileMenuOpen(false)}
+                  className="w-full text-center py-2.5 text-sm font-semibold text-[#191C24] bg-white rounded-xl border border-[#D4AF37]/50 shadow-xs flex items-center justify-center gap-1.5"
+                >
+                  <SparklesIcon size={14} className="text-[#8A6A00]" />
+                  Open Dashboard
+                </Link>
                 <div className="text-xs font-semibold px-3 py-2 rounded-xl bg-[#F8F7F4] text-[#191C24] border border-[#E8E5DE] flex items-center gap-1.5">
                   <ShieldCheckIcon size={14} className="text-[#8A6A00]" />
                   <span>{userEmail || "Signed in"}</span>

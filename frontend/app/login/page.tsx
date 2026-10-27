@@ -1,11 +1,12 @@
 "use client";
 
-import React, { useState, Suspense } from "react";
+import React, { useState, useEffect, Suspense } from "react";
 import Link from "next/link";
-import { useSearchParams } from "next/navigation";
+import { useSearchParams, useRouter } from "next/navigation";
+import Image from "next/image";
 import { ShieldCheckIcon, CheckCircle2Icon, ArrowUpRightIcon } from "../../components/Icons";
 import { ChevronLeft } from "lucide-react";
-import { setAuthSession, API_BASE } from "../../lib/auth";
+import { setAuthSession, isAuthenticated, API_BASE } from "../../lib/auth";
 
 /* ───────────────────────── Local SVGs ───────────────────────── */
 function EyeIcon({ open }: { open: boolean }) {
@@ -197,8 +198,15 @@ const flowPoints = [
 
 /* ─────────────── Inner Component (uses useSearchParams) ─────────────── */
 function AuthInner() {
+  const router = useRouter();
   const searchParams = useSearchParams();
   const [tab, setTab] = useState(() => (searchParams.get("tab") === "signup" ? 1 : 0));
+
+  useEffect(() => {
+    if (isAuthenticated()) {
+      router.push("/dashboard");
+    }
+  }, [router]);
 
   // Sign In state
   const [loginEmail, setLoginEmail] = useState("");
@@ -241,6 +249,7 @@ function AuthInner() {
       } else if (data.status === "ok") {
         setAuthSession(data.access_token, data.expires_in || 900, loginEmail);
         setLoginSuccess("Authentication successful! Redirecting...");
+        setTimeout(() => router.push("/dashboard"), 500);
       }
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : "Unable to reach authentication service.";
@@ -264,6 +273,7 @@ function AuthInner() {
       if (data.status === "ok") {
         setAuthSession(data.access_token, data.expires_in || 900, loginEmail);
         setLoginSuccess("Verified! Access granted.");
+        setTimeout(() => router.push("/dashboard"), 500);
       }
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : "Failed to verify 2FA code.";
@@ -448,9 +458,11 @@ function AuthInner() {
                   <ChevronLeft size={18} strokeWidth={1.8} />
                 </Link>
                 <Link href="/" className="inline-block group">
-                  <img
+                  <Image
                     src="/logo-icon.png"
                     alt="Mostro AI"
+                    width={150}
+                    height={146}
                     className="h-10 w-auto object-contain group-hover:opacity-90 transition-opacity rounded-[10px]"
                   />
                 </Link>

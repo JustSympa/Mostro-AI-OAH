@@ -1,5 +1,6 @@
 import React from "react";
 import Link from "next/link";
+import Image from "next/image";
 import { ShieldCheckIcon } from "./Icons";
 
 export function Footer() {
@@ -10,9 +11,11 @@ export function Footer() {
           {/* Brand Info (Col 2) */}
           <div className="lg:col-span-2 space-y-4">
             <div className="flex items-center gap-3">
-              <img
+              <Image
                 src="/logo-icon.png"
                 alt="Mostro AI"
+                width={150}
+                height={146}
                 className="w-10 h-10 rounded-xl object-cover"
               />
               <span className="font-extrabold text-lg text-[#191C24]">
