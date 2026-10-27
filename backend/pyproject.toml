@@ -26,6 +26,7 @@ dependencies = [
     "redis>=5.2.0",
     "zxcvbn>=4.4.28",
     "httpx>=0.28.0",
+    "structlog>=24.4.0",
     "qrcode>=8.0",
 ]
 

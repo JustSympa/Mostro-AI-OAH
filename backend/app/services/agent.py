@@ -215,10 +215,12 @@ class AgentService:
 
     @staticmethod
     def _record_usage(usage: Usage, chunk: ModelChunk) -> None:
-        usage.prompt_tokens = max(usage.prompt_tokens, chunk.prompt_tokens)
-        usage.completion_tokens = max(
-            usage.completion_tokens, chunk.completion_tokens
-        )
+        if chunk.prompt_tokens is not None:
+            usage.prompt_tokens = max(usage.prompt_tokens or 0, chunk.prompt_tokens)
+        if chunk.completion_tokens is not None:
+            usage.completion_tokens = max(usage.completion_tokens or 0, chunk.completion_tokens)
+        if chunk.model is not None:
+            usage.model = chunk.model
 
     @staticmethod
     def _build_prompt(

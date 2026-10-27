@@ -943,7 +943,7 @@ requires-dist = [
     { name = "redis", specifier = ">=5.2.0" },
     { name = "slowapi", specifier = ">=0.1.9" },
     { name = "sqlalchemy", extras = ["asyncio"], specifier = ">=2.0.36" },
-    { name = "sse-starlette", specifier = ">=2.2.1" },
+    { name = "sse-starlette", specifier = ">=3.0.0" },
     { name = "structlog", specifier = ">=24.4.0" },
     { name = "uvicorn", extras = ["standard"], specifier = ">=0.32.0" },
     { name = "zxcvbn", specifier = ">=4.4.28" },

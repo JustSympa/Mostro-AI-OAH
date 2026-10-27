@@ -16,7 +16,7 @@ from app.schemas.agent_request import AgentRequest
 from app.schemas.agent_response import AgentEvent
 from app.services.agent import AgentService
 from app.services.embeddings import VoyageEmbedder
-from app.services.model import NemetronBoltClient
+from app.services.model import NightshiftClient
 from app.utils.token_tracker import TokenTracker
 
 logger = logging.getLogger("mostro.agent")
@@ -33,7 +33,7 @@ def get_agent_service(
         user=user,
         settings=settings,
         embedder=VoyageEmbedder(settings),
-        model=NemetronBoltClient(settings),
+        model=NightshiftClient(settings),
         tracker=TokenTracker(settings),
     )
 

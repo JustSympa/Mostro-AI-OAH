@@ -61,16 +61,17 @@ Mostro's answer is one idea: **ask the official prospectus directly, and see exa
 
 - **Docker** and **Docker Compose** (recommended path), or Python 3.12 with [uv](https://docs.astral.sh/uv/) and Docker for the database.
 - A shell with `curl` and (optionally) `jq`: Linux, macOS, WSL, or Git Bash. On Windows without these, use the Swagger UI at `/docs` instead of the curl examples.
-- API keys: DeepSeek, Voyage AI, Zetaris, and Meterless. <!-- TODO: say how examiners receive the keys (private submission notes, .env file, shared link) -->
+- A configured Meterless Nightshift Runtime and its real token, Voyage AI and Zetaris keys, and TypeSafe JEV credentials when enabled. Select the intended Nemotron model in Nightshift's fleet. <!-- TODO: say how examiners receive the keys privately -->
 
 ### Option A: Docker (recommended)
 
 ```bash
 git clone https://github.com/JustSympa/Mostro-AI-OAH.git mostro-ai && cd mostro-ai
 
-cp env.example .env
-# Open .env and fill in: DEEPSEEK_API_KEY, VOYAGE_API_KEY, ZETARIS_*, METERLESS_*
-# Leave DEMO_MODE=true and ZETARIS_ENABLED=true
+cp .env.example .env
+# Fill in: EMBEDDING_API_KEY, ZETARIS_*, METERLESS_API_KEY and METERLESS_PROXY_URL.
+# METERLESS_PROXY_URL must be reachable from Docker, not the container's localhost.
+# Apply/register the Zetaris views and verify Nightshift as described in README.
 
 mkdir -p logs && chmod 777 logs          # so the container can write logs to ./logs
 
@@ -495,11 +496,11 @@ grep "<MESSAGE_ID>" logs/agent.log | jq -c .
 | Sponsor | What it does in Mostro | Where | How to verify |
 |---|---|---|---|
 | **Zetaris** | **Query layer over our data stores.** Chunk retrieval for prospectus search and the user's profile and knowledge lookups for education go through the Zetaris harness, as predefined, parameterized, read-only queries. <!-- TODO: describe the actual connection and what is virtualized --> | `ai/integrations/zetaris/` | `zetaris` in `GET /v1/admin/integrations/health`; `trace.zetaris_queries` on any answer; `zetaris.query` events in `logs/agent.log`; `"via":"zetaris"` on every retrieval attempt |
-| **Meterless** | **Usage and cost tracking around every LLM call**: tokens and cost per answer, per route, per user. <!-- TODO: describe the actual Meterless component used --> | `ai/integrations/meterless/` | `meterless` in the health check; `usage` on every message; `GET /v1/usage/me`; `meterless.usage` events in the logs |
+| **Meterless** | **Nightshift Runtime is the generation proxy.** Authenticated model discovery and streamed OpenAI-compatible chat completions use `meterless/auto`; returned usage is logged locally. | `backend/app/services/model.py`, `backend/app/utils/token_tracker.py` | `python -m scripts.check_nightshift` (discovery), add `--generate` for a live test; `mostro.nightshift` and `agent_usage` logs. See README for configuration. |
 | **Cursor** | **Development environment.** The repository was built in Cursor, guided by `AGENTS.md` (project rules) and `README.md` (full technical documentation). <!-- TODO: link evidence: commit history, screenshots, prompts --> | `AGENTS.md`, `README.md` | Repository history and files |
-| **NVIDIA** | Integrated NVIDIA models (Nemotron-3.5-Parser, Nemotron-3.5-Embed, Nemotron Bolt) accessed via Meterless Nightshift proxy. | `ai/integrations/nightshift/` | Check `/v1/meta` for model names; verify via logs with `meterless` usage. |
+| **NVIDIA** | Nemotron is selected in the deployment's Nightshift fleet. The backend requests a routing mode, not a hard-coded NVIDIA ID; it does not implement NVIDIA parsing/embedding providers. | Nightshift fleet configuration; `backend/app/services/model.py` | Run the opt-in generation smoke check, inspect any runtime-reported model and confirm the actual route/model in Nightshift receipts. `meterless/auto` alone is not proof of NVIDIA selection. |
 
-**Other technology:** DeepSeek (language model), Voyage AI (embeddings), PostgreSQL with pgvector, FastAPI, LangGraph.
+**Other technology:** Voyage AI (embeddings), TypeSafe JEV (when enabled), PostgreSQL with pgvector, FastAPI.
 
 > `ZETARIS_ENABLED=true` is required for evaluation. A direct-database fallback exists only for local development and tests, and every trace states which path was used.
 

@@ -1,25 +1,24 @@
-# Multi‑stage Dockerfile for Mostro‑AI‑OAH
-# Stage 1 – init the Next.js frontend
+# Multi-stage Dockerfile for Mostro-AI-OAH
+# Stage 1: build the Next.js frontend as a static export.
 FROM node:22-alpine AS frontend-base
 RUN apk add --no-cache libc6-compat
 WORKDIR /frontend
 
-# Stage 2 – Install Next.js dependencies for the frontend
 FROM frontend-base AS frontend-deps
 WORKDIR /frontend
-COPY package.json package-lock.json ./
+COPY frontend/package.json frontend/package-lock.json ./
 RUN npm ci
 
-# Stage 3 – Minimal production runner
 FROM frontend-base AS frontend-builder
 WORKDIR /frontend
 COPY --from=frontend-deps /frontend/node_modules ./node_modules
-
 COPY frontend/ ./
-# Build a static production bundle (output in .next and public)
+ARG NEXT_PUBLIC_API_URL=http://localhost:8000
+ENV NEXT_PUBLIC_API_URL=${NEXT_PUBLIC_API_URL}
+ENV NEXT_TELEMETRY_DISABLED=1
 RUN npm run build
 
-# Stage 4 – install Python dependencies for the backend
+# Stage 2: install Python runtime + app code.
 FROM python:3.12-slim AS backend-base
 ENV PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1 \
@@ -27,17 +26,35 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
     PIP_DISABLE_PIP_VERSION_CHECK=1
 WORKDIR /app
 COPY backend/pyproject.toml ./
-# Install the backend and its optional dev extras (including uv, ruff, etc.)
-RUN pip install --no-cache-dir ".[dev]"
+RUN python -m pip install --upgrade pip setuptools wheel && \
+    pip install --no-cache-dir \
+        "fastapi>=0.115.0" \
+        "sse-starlette>=3.0.0" \
+        "uvicorn[standard]>=0.32.0" \
+        "pydantic-settings>=2.6.0" \
+        "email-validator>=2.2.0" \
+        "sqlalchemy[asyncio]>=2.0.36" \
+        "pgvector>=0.3.6" \
+        "asyncpg>=0.30.0" \
+        "alembic>=1.14.0" \
+        "argon2-cffi>=23.1.0" \
+        "pyotp>=2.9.0" \
+        "google-auth[requests]>=2.36.0" \
+        "PyJWT>=2.10.0" \
+        "cryptography>=44.0.0" \
+        "slowapi>=0.1.9" \
+        "redis>=5.2.0" \
+        "zxcvbn>=4.4.28" \
+        "httpx>=0.28.0" \
+        "structlog>=24.4.0" \
+        "qrcode>=8.0" \
+        "pytest>=8.3.0" \
+        "pytest-asyncio>=0.24.0"
 COPY backend/ ./
 
-# Stage 3 – final image combines backend + compiled frontend assets
+# Stage 3: final image combines the FastAPI backend with the built frontend assets.
 FROM backend-base AS final
-# Copy the static assets produced by the frontend build into a location served by FastAPI
-COPY --from=frontend-builder /frontend/.next /app/static/.next
-COPY --from=frontend-builder /frontend/public /app/static/public
-COPY --from=frontend-builder /frontend/next.config.ts /app/static/next.config.ts
-# Ensure the entrypoint script is executable
+COPY --from=frontend-builder /frontend/out /app/static
 RUN chmod +x scripts/entrypoint.sh
 EXPOSE 8000
 ENTRYPOINT ["./scripts/entrypoint.sh"]

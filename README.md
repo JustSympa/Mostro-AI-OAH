@@ -118,8 +118,8 @@ Client (curl / Swagger UI / future frontend)
 │ api/  routes: auth, users, ipos, chat, education, calendar, usage, admin    │
 │ services/  business logic       core/  logging, errors, security            │
 │ agent/  LangGraph graph  ─►  retrieval/  ─►  integrations/zetaris           │
-│                          ─►  llm/  (DeepSeek chat, Voyage embeddings)       │
-│                          ─►  integrations/meterless (usage + cost tracking) │
+│                          ─►  Nightshift Runtime (Nemotron fleet)            │
+│                          ─►  Voyage text embeddings                        │
 │ scheduler  (reminders)          ingestion/  (separate entrypoint)           │
 └───────────────┬─────────────────────────────────────────────┬───────────────┘
                 ▼                                             ▼
@@ -127,7 +127,10 @@ Client (curl / Swagger UI / future frontend)
    key facts, sessions, messages, quizzes, usage...)
 ```
 
-There are no other services. Zetaris is used as the query layer over the data stores; DeepSeek and Voyage AI are external APIs.
+Zetaris is the agent's query harness. Meterless Nightshift is the generation
+proxy, routing to the models configured in its fleet (Nemotron for this
+deployment). Voyage AI provides embeddings; TypeSafe JEV provides optional
+intent routing and evidence evaluation.
 
 ### 6.2 Agent graph (LangGraph)
 
@@ -136,7 +139,7 @@ The agent is a **fixed graph with conditional edges**, not a free tool-calling l
 ```mermaid
 flowchart TD
     U([User message]) --> GW[FastAPI: auth, rate limit]
-    GW --> MT[Meterless usage tracking]
+    GW --> MT[Request metadata]
     MT --> R{Intent router}
 
     R -->|prospectus_search| QR[Query rewriter]
@@ -152,7 +155,7 @@ flowchart TD
 
     EF --> CB
     CE --> CB
-    CB --> G[DeepSeek generation]
+    CB --> G[Nightshift chat generation]
     G --> PP[Post-processor]
 
     PP --> QC{Turn count divisible by 4 or user opted in?}
@@ -185,7 +188,7 @@ flowchart TD
 | `edu_fetch` | Load the user's profile and knowledge states (through Zetaris). Also retrieve relevant chunks when the question concerns this IPO. | `profile`, `knowledge` |
 | `calendar_extract` | Load **verified** date key facts for the IPO. | `key_dates` |
 | `context_builder` | Assemble the prompt context: verified chunks or facts, user level and language, citation markers. | `context` |
-| `generate` | DeepSeek call. Answers only from the context, adds `[n]` citation markers, adapts tone and language. | `answer`, `citations`, `usage` |
+| `generate` | Meterless Nightshift chat call using the configured routing mode. Answers from supplied context; only complete text responses are persisted. | `answer`, `citations`, usage logs |
 | `post_processor` | Decide on quiz and calendar card (rules below). Skipped when the outcome is `abstained` or `refused`. | `quiz`, `calendar_card` |
 | `formatter` | Build the final response object (and SSE events when streaming), persist message, citations, quiz, proposal, trace, and usage. | `response` |
 
@@ -244,7 +247,7 @@ does not silently bypass Zetaris when the harness is missing or fails.
 | Integration | Role in the system | Adapter | Observability |
 |---|---|---|---|
 | **Zetaris** | Required agent context harness: IPOs, chunks, learning profile/progression, history, calendar facts | `backend/app/services/zetaris.py`, `backend/app/services/agent_data.py` | `mostro.zetaris` completion logs (row/page counts and duration, no SQL or record contents), `python -m scripts.check_zetaris` |
-| **Meterless** | Usage tracking around every LLM call: tokens and cost per request. | `ai/integrations/meterless/` | `meterless.usage` log events, `usage_events` table, `message.usage`, `GET /v1/usage/me` |
+| **Meterless** | Nightshift Runtime is the required generation proxy; its configured fleet serves the model | `backend/app/services/model.py` | Authenticated discovery/smoke CLI, `mostro.nightshift` start/completion logs, local `agent_usage` logs |
 
 Rules for the adapters:
 - Define a narrow interface (for example `run_chunk_search(...)`, `get_user_context(...)`, `record_usage(...)`).
@@ -375,6 +378,97 @@ latency on large corpora. Hybrid/full-text fusion remains roadmap work.
 Do not cache/materialize the user-context views: subsequent turns need fresh
 committed profile/progression/history data.
 
+#### Meterless Nightshift generation
+
+The backend implements the official
+[Meterless Runtime provider contract](https://github.com/Meterless/Meterless/blob/1742dec56a66e58eef9dda2d2b865823758ca8cd/docs/agent-ready/add-meterless-provider.md)
+and [Nightshift hotspot guidance](https://github.com/Meterless/Meterless/blob/1742dec56a66e58eef9dda2d2b865823758ca8cd/docs/products/nightshift/hotspot.md).
+The contract describes Runtime 0.90.0:
+
+- Default base URL: `http://127.0.0.1:8088/v1`. Pasted origins, `/v1`,
+  `/v1/chat/completions`, `/v1/models` and `/healthz` URLs are normalized to
+  one `/v1` base. The old `/api/v1/completions` endpoint is not used.
+- Every call sends the real runtime token as `Authorization: Bearer ...`
+  and `meterless-app: mostro-ai-oah`. Chat also sends `meterless-scope: user`.
+  Obtain the token from Nightshift's `<stateDir>/proxy-token` or its connection
+  settings. The illustrative placeholder `rt-local` is rejected.
+- `GET /v1/models` authenticates and discovers available `meterless/*` routes.
+  The selected route must be advertised before a generation is sent.
+  Unknown advertised routing modes are preserved. HTTP 401/403 is reported as
+  unauthorized, not as offline. `/healthz` alone does not establish readiness.
+- `POST /v1/chat/completions` sends plain-string chat messages, streaming,
+  `stream_options.include_usage`, and a configured output token limit. The
+  default request timeout is 180 seconds for cold local model loads.
+- Generation never bypasses Nightshift or silently switches provider, route,
+  or fleet. Failed requests are not replayed, since they may already have
+  emitted tokens or incurred charges.
+
+**NVIDIA selection:** `METERLESS_MODEL=meterless/auto` is the route selected
+for this project. It is not a NVIDIA model identifier and cannot pin Nemotron
+Bolt by itself. Keep Nemotron selected in your already-configured Nightshift
+fleet and inspect Nightshift's receipts to confirm which model actually ran.
+The backend records the response's `model` separately from the requested route
+when supplied; it does not fabricate a NVIDIA model name. There is no direct
+NVIDIA URL or separate NVIDIA API key in this backend path. If your fleet
+uses NVIDIA's cloud, configure its credentials in Nightshift, not in Mostro.
+JEV classification/evaluation and Voyage embeddings remain their existing
+separate providers; only answer generation goes through Nightshift.
+
+In the root `.env`, configure:
+
+```dotenv
+METERLESS_PROXY_URL=http://127.0.0.1:8088/v1
+METERLESS_API_KEY=<real-runtime-token>
+METERLESS_MODEL=meterless/auto
+METERLESS_APP_ID=mostro-ai-oah
+METERLESS_TIMEOUT_SECONDS=180
+METERLESS_MAX_TOKENS=2048
+```
+
+For a containerized backend, `127.0.0.1` points to the backend itself. Replace
+it with the reachable Nightshift host/LAN address from the app's connect
+settings, enable hotspot/network access as needed, and keep the token private.
+The backend deliberately uses this explicit URL instead of scanning the LAN.
+Do not expose an unauthenticated runtime or forward its token to another
+provider.
+
+Remove obsolete `NEMETRON_BOLT_URL`, `NEMETRON_BOLT_MODEL` and non-empty
+`METERLESS_USAGE_URL` settings. They now fail configuration explicitly:
+the first two could bypass the proxy or send a fabricated model ID, and
+Nightshift has no documented usage-posting endpoint. Rebuild the backend
+image after updating code/dependencies. No database migration is needed
+for this provider change.
+
+Validate discovery first (no text generation or paid model call):
+
+```bash
+cd backend
+uv run --env-file ../.env python -m scripts.check_nightshift
+# Opt in to a short public-text request through your configured fleet:
+uv run --env-file ../.env python -m scripts.check_nightshift --generate
+```
+
+The second command may incur cloud costs, depending on the fleet. It validates
+the streaming protocol and prints the reported model and token counts without
+printing your token or application prompts. It does not claim that a
+`meterless/auto` response alone proves NVIDIA was selected.
+
+**Streaming and usage:** SSE frames support fragmented/multiline data and
+heartbeats. Only `delta.content` is emitted; reasoning metadata is ignored.
+Malformed/error events, unsupported tools/refusals, truncation (`length`),
+missing stop/completion markers, and dropped connections fail explicitly.
+Previously streamed tokens may already be visible, but an incomplete response
+is never saved as an assistant answer or mined into H-MEM.
+
+Token counts come from the proxy's returned usage and are accumulated as
+cumulative counts, not summed per delta. Missing usage is logged as unknown,
+not zero. `agent_usage` includes provider, route, reported model, request/session
+IDs and an optional **estimated** cost only when both token counts and both
+configured per-million prices are known. Estimates are not Nightshift billing
+receipts; omit prices when fleet pricing is unknown. HTTP request metadata
+middleware and H-MEM remain local features, not substitutes for using the
+Nightshift inference proxy.
+
 ### 6.8 Logging and tracing
 
 The agent must write logs to **both the console and the `logs/` folder**, so a developer or examiner can follow the agent's reasoning step by step.
@@ -407,7 +501,7 @@ The agent must write logs to **both the console and the `logs/` folder**, so a d
 | `agent.postprocess.quiz` | `triggered`, `reason`, `quiz_type` |
 | `agent.postprocess.calendar` | `date_found`, `already_saved`, `proposal_id` |
 | `zetaris.query` | `name`, `target`, `rows`, `duration_ms` |
-| `meterless.usage` | `route`, `model`, `input_tokens`, `output_tokens`, `cost_usd` |
+| `agent_usage` | `provider`, `route`, `reported_model`, `prompt_tokens`, `completion_tokens`, `usage_reported`, `estimated_cost` |
 
 **Rules**
 - Log **structured decisions with a short reason**, not raw model chain-of-thought.
@@ -419,11 +513,15 @@ The agent must write logs to **both the console and the `logs/` folder**, so a d
 
 | Role | Model (configurable) | Used for |
 |---|---|---|
-| Fast LLM | DeepSeek flash model | Router, query rewriting, evaluator |
-| Main LLM | DeepSeek pro model | Generation, quiz grading, key-fact extraction, summaries |
+| Classifier/evaluator | TypeSafe JEV when configured; deterministic fallback otherwise | Intent routing and evidence evaluation |
+| Main LLM | Meterless Nightshift `meterless/auto`, backed by the configured Nemotron fleet | Answer generation |
 | Embeddings | Voyage AI text embeddings (`voyage-3.5`, 1024 dimensions) | Prospectus chunks and queries |
 
-Check the provider docs for current model names before changing them (DeepSeek renamed its models in 2026). If the embedding model or dimension changes, **every vector must be re-embedded** and the `VECTOR(n)` columns migrated. Voyage supports 2048 dimensions, but pgvector cannot HNSW-index plain `vector` columns above 2000 dimensions, so stay at 1024.
+Check the provider docs and Nightshift's advertised routing modes before changing
+configuration. If the embedding model or dimension changes, **every vector must
+be re-embedded** and the `VECTOR(n)` columns migrated. Voyage supports 2048
+dimensions, but pgvector cannot HNSW-index plain `vector` columns above 2000
+dimensions, so stay at 1024.
 
 ## 7. Data model
 
@@ -614,7 +712,7 @@ Notes:
 | API | FastAPI, Uvicorn, Pydantic v2, `pydantic-settings`, SSE (`sse-starlette`), `python-multipart` |
 | Auth | JWT (`pyjwt`), password hashing (`pwdlib[argon2]`), OAuth2 password form for Swagger |
 | Agent | LangGraph, `langchain-core`, `langchain-deepseek` |
-| LLM | DeepSeek |
+| LLM | Meterless Nightshift Runtime (OpenAI-compatible chat proxy; Nemotron selected in its fleet) |
 | Embeddings | Voyage AI over HTTP (`httpx`), adapter in `backend/app/services/embeddings.py` |
 | Database | PostgreSQL 17, pgvector (HNSW), full-text search |
 | DB access | SQLAlchemy 2 (async), psycopg 3, Alembic |
@@ -623,7 +721,7 @@ Notes:
 | Ingestion | Docling, PyMuPDF (optional `ingest` dependency group), `tiktoken` |
 | Resilience and logging | `tenacity`, `structlog` |
 | Data layer sponsor | Zetaris |
-| Usage tracking sponsor | Meterless |
+| Generation proxy sponsor | Meterless Nightshift; local logging of returned token usage |
 | Agent memory | Local Python implementation of Meterless H-MEM (separate from token tracking and evidence retrieval) |
 | Tests | pytest, pytest-asyncio, httpx, respx |
 | Packaging | Docker (multi-stage), Docker Compose |
@@ -710,7 +808,9 @@ Mostro-AI-OAH/
 
 ### Prerequisites
 
-Python 3.12, [uv](https://docs.astral.sh/uv/), Docker and Docker Compose, and API keys for DeepSeek and Voyage AI (plus Zetaris and Meterless credentials when you test those integrations).
+Python 3.12+, [uv](https://docs.astral.sh/uv/), Docker and Docker Compose, a
+configured Nightshift Runtime and token, and Voyage AI/Zetaris credentials
+(plus TypeSafe JEV credentials when enabled).
 
 ### First-time setup
 
@@ -880,15 +980,20 @@ All configuration comes from environment variables, read only in `ai/config.py`.
 | `ACCESS_TOKEN_TTL_MINUTES`, `REFRESH_TOKEN_TTL_DAYS` | Token lifetimes | `30`, `7` |
 | `ADMIN_BOOTSTRAP_EMAIL`, `ADMIN_BOOTSTRAP_PASSWORD` | Admin account created at startup | demo only |
 | `DEMO_USER_EMAIL`, `DEMO_USER_PASSWORD` | Demo user created by the seed | demo only |
-| `DEEPSEEK_API_KEY`, `DEEPSEEK_BASE_URL` | LLM access | `https://api.deepseek.com` |
-| `LLM_MODEL_FAST`, `LLM_MODEL_MAIN` | Router/evaluator vs generation models | check provider docs |
+| `METERLESS_PROXY_URL` | Nightshift Runtime origin or OpenAI base/endpoint URL | `http://127.0.0.1:8088/v1` |
+| `METERLESS_API_KEY` | Real runtime bearer token; `rt-local` is rejected | unset |
+| `METERLESS_MODEL` | Advertised routing mode, not a NVIDIA model filename | `meterless/auto` |
+| `METERLESS_APP_ID` | Stable lowercase application ID for runtime attribution | `mostro-ai-oah` |
+| `METERLESS_TIMEOUT_SECONDS` | Nightshift HTTP timeout, allowing cold loads | `180` |
+| `METERLESS_MAX_TOKENS` | Output token budget; increase if your selected model truncates | `2048` |
+| `INPUT_COST_PER_MILLION_TOKENS`, `OUTPUT_COST_PER_MILLION_TOKENS` | Optional prices for local estimates; omit if unknown | unset |
 | `EMBEDDING_API_KEY` | Voyage bearer API key | unset |
 | `EMBEDDING_API_URL` | Voyage text embedding endpoint (origin and `/v1` base also accepted) | `https://api.voyageai.com/v1/embeddings` |
 | `EMBEDDING_MODEL` | Text embedding model; re-embed documents when changed | `voyage-3.5` |
 | `EMBEDDING_DIMENSION` | Fixed to match the current `VECTOR(1024)` schema | `1024` |
 | `EMBEDDING_BATCH_SIZE` | Maximum texts per request (1-1000); also respect Voyage token limits | `32` |
 | `EMBEDDING_MAX_ATTEMPTS` | Bounded attempts per HTTP request (1-6) | `3` |
-| `MODEL_TIMEOUT_SECONDS` | Shared provider HTTP timeout | `60` |
+| `MODEL_TIMEOUT_SECONDS` | Voyage HTTP timeout (Nightshift has its own setting) | `60` |
 | `JEV_ENDPOINT` | Enable JEV intent routing and evidence evaluation; accepts the full endpoint, API origin, or `/v1` base | unset; example: `https://api.typesafe.ai/v1/systemone` |
 | `JEV_API_KEY` | TypeSafe bearer API key for both routing and evaluation | unset |
 | `JEV_MODEL` | System One model alias | `jev-latest` |
@@ -906,7 +1011,6 @@ All configuration comes from environment variables, read only in `ai/config.py`.
 | `ZETARIS_TIMEOUT_SECONDS` | Timeout per REST request | `60` |
 | `ZETARIS_PAGE_SIZE` | SQL records per page, 1-100 | `100` |
 | `ZETARIS_MAX_ROWS` | Fail rather than truncate results above this bound | `10000` |
-| `METERLESS_ENABLED`, `METERLESS_BASE_URL`, `METERLESS_API_KEY` | Usage tracking | <!-- TODO: confirm --> |
 
 ## 13. Testing and evaluation
 
@@ -1067,7 +1171,7 @@ Ordered by risk: data and retrieval first, features after. Tier labels match `do
 
 - [ ] **Phase 0: Foundation.** `config.py`, `core/logging.py` (console + `logs/app.log` + `logs/agent.log`, redaction), errors, middleware (request id, access log), DB session, Alembic baseline from section 7, `/health`, `/v1/meta`.
 - [ ] **Phase 1: Auth and users.** Register, login, token, refresh, logout, `users/me`, profile, onboarding questions. Admin bootstrap. *Needed by every other route.*
-- [ ] **Phase 2: LLM and embedding layers.** DeepSeek client, Voyage client with batching and throttling, Meterless usage wrapper, fakes for tests.
+- [ ] **Phase 2: LLM and embedding layers.** Nightshift chat proxy, Voyage batching and local usage logging are implemented with mocked contract tests. Cross-process embedding throttling remains.
 - [ ] **Phase 3: Ingestion and data.** Parse, chunk, embed, store; key-fact extraction with review routes; section summaries; admin IPO and document routes; demo data package in `data/demo/` with precomputed embeddings; demo seed.
 - [ ] **Phase 4: Retrieval and evaluator.** Zetaris REST context reads and exact vector retrieval are implemented without direct fallback. Hybrid search/RRF, the retrieval debug route and retrieval evals remain.
 - [ ] **Phase 5: Agent graph v1.** Router, rewriter, retriever, evaluator loop, abstain, refusal, context builder, generate, formatter. Chat routes (`ask`, sessions, messages), trace route, agent logging. *First end-to-end slice.*
@@ -1123,7 +1227,7 @@ Short-lived branches, small pull requests, clear commit messages. <!-- TODO: con
 - **Information, not advice.** The product must never give personalized recommendations or promise returns. Disclaimers and wording need legal review per country.
 - **Scam wording.** Say things like "this account is not listed among the receiving agents on page X" and tell users to confirm through official channels. Never state with certainty that something is or is not a scam.
 - **Prompt injection.** Prospectus text and user messages are untrusted data. The model never chooses the IPO, never writes SQL, and never executes actions.
-- **Personal data.** User messages may contain personal details. DeepSeek and Voyage are external APIs hosted outside most users' regions; prospectus text is public, user messages are not. Review data-handling obligations per country. Users can delete their account and all associated data (`DELETE /v1/users/me`).
+- **Personal data.** User messages may contain personal details. Nightshift may route to cloud models depending on your fleet; Voyage and configured JEV are also external APIs. Prospectus text is public, user messages are not. Review data-handling obligations and fleet settings per country. Users can delete their account and all associated data (`DELETE /v1/users/me`).
 - **Logs.** Redact secrets and emails. Log user text only when allowed by configuration.
 - **Secrets.** Environment variables or a secret manager; never committed, never baked into images.
 
@@ -1154,6 +1258,6 @@ Short-lived branches, small pull requests, clear commit messages. <!-- TODO: con
 | **Reminder** | A scheduled notification created when a proposal is confirmed |
 | **Trace** | The structured record of how one answer was produced, served by the trace route and mirrored in `logs/agent.log` |
 | **Zetaris** | Sponsor data platform used as the query layer over the data stores |
-| **Meterless** | Sponsor technology used here for usage and cost tracking around LLM calls |
+| **Meterless** | Sponsor technology providing Nightshift, the required generation proxy, plus the local H-MEM architecture |
 | **SSE** | Server-Sent Events, the optional streaming format for chat responses |
 | **Demo mode** | `DEMO_MODE=true`: seeds demo data and enables test and debug routes |

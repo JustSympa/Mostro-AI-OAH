@@ -4,9 +4,12 @@ import logging
 from contextlib import asynccontextmanager
 from typing import Any
 
+from pathlib import Path
+
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
+from fastapi.staticfiles import StaticFiles
 from slowapi.errors import RateLimitExceeded
 from slowapi.middleware import SlowAPIMiddleware
 from sqlalchemy import text
@@ -73,6 +76,10 @@ app.include_router(auth_router)
 app.include_router(profile_router)
 app.include_router(agent_router)
 app.include_router(memory_router)
+
+static_dir = Path(__file__).resolve().parent.parent / "static"
+if static_dir.exists():
+    app.mount("/", StaticFiles(directory=str(static_dir), html=True), name="frontend")
 
 
 @app.get("/health")

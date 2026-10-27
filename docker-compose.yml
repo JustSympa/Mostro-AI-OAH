@@ -1,9 +1,10 @@
-# Docker Compose for full stack (backend + frontend) and Zetaris services
+# Docker Compose for the FastAPI app + Postgres + Redis
+# The root Dockerfile builds the Next.js frontend as static assets and copies them
+# into the final app image, where FastAPI serves them on the same port.
 
 name: mostro-ai-oah
 
 services:
-  # Core services
   postgres:
     image: pgvector/pgvector:pg16
     restart: unless-stopped
@@ -36,11 +37,12 @@ services:
     networks:
       - internal
 
-  # Application – combines FastAPI backend and static Next.js assets
   app:
     build:
       context: .
       dockerfile: Dockerfile
+      args:
+        NEXT_PUBLIC_API_URL: ${NEXT_PUBLIC_API_URL:-http://localhost:8000}
     restart: unless-stopped
     ports:
       - "${APP_PORT:-8000}:8000"
@@ -49,21 +51,21 @@ services:
     environment:
       DATABASE_URL: postgresql+asyncpg://${POSTGRES_USER:-mostro}:${POSTGRES_PASSWORD:-mostro}@postgres:5432/${POSTGRES_DB:-mostro}
       REDIS_URL: redis://redis:6379/0
+      NEXT_PUBLIC_API_URL: ${NEXT_PUBLIC_API_URL:-http://localhost:8000}
     depends_on:
       postgres:
         condition: service_healthy
       redis:
         condition: service_healthy
     healthcheck:
-      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/health')"]
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/health').read()"]
       interval: 5s
-      timeout: 5s
-      retries: 10
-      start_period: 15s
+      timeout: 10s
+      retries: 15
+      start_period: 20s
     networks:
       - internal
       - public
-
 
 networks:
   internal:
