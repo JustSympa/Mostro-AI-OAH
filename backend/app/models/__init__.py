@@ -5,6 +5,7 @@ from app.models.conversation import CalendarProposal, ChatSession, Message, Mess
 from app.models.investor_knowledge import GlossaryTerm, UserKnowledgeState
 from app.models.ipo import Chunk, Document, IPO, KeyFact, SectionSummary
 from app.models.memory import HMemLedger, HMemState
+from app.models.news import NewsStory, NewsTopic, NewsWatchlistEntry
 from app.models.oauth import OAuthIdentity
 from app.models.refresh_token import RefreshToken
 from app.models.risk_profile import RiskProfile, RiskProfileAnswer
@@ -27,6 +28,9 @@ __all__ = [
     "KeyFact",
     "Message",
     "MessageCitation",
+    "NewsStory",
+    "NewsTopic",
+    "NewsWatchlistEntry",
     "OAuthIdentity",
     "RefreshToken",
     "RiskProfile",

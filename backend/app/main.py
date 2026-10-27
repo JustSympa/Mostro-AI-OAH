@@ -16,7 +16,9 @@ from sqlalchemy import text
 
 from app.api.routes.auth.router import router as auth_router
 from app.api.routes.agent.router import router as agent_router
+from app.api.routes.ipo.router import router as ipo_router
 from app.api.routes.memory.router import router as memory_router
+from app.api.routes.news.router import router as news_router
 from app.api.routes.profile.router import router as profile_router
 from app.config import get_settings
 from app.core.limiter import limiter
@@ -75,6 +77,8 @@ app.add_middleware(MeterlessMiddleware)
 app.include_router(auth_router)
 app.include_router(profile_router)
 app.include_router(agent_router)
+app.include_router(ipo_router)
+app.include_router(news_router)
 app.include_router(memory_router)
 
 static_dir = Path(__file__).resolve().parent.parent / "static"

@@ -19,7 +19,9 @@ async def check(
     if login:
         await client.check_login()
         print("Zetaris Basic-auth login: OK (tokens are not printed).")
-    if await client.query("SELECT 1 AS connected") != [{"connected": 1}]:
+    # Zetaris serializes every scalar as a string, so "1" arrives as "1", not 1.
+    rows = await client.query("SELECT 1 AS connected")
+    if len(rows) != 1 or str(rows[0].get("connected")) != "1":
         raise DataHarnessError("Zetaris connectivity query returned an unexpected result.")
     print("Zetaris REST SQL start/page/close: OK.")
     columns = {
@@ -49,7 +51,12 @@ async def check(
                     / sqrt(aggregate(v, CAST(0 AS DOUBLE), (s, x) -> s + x*x))))
                END AS score FROM vectors
     """)
-    if rows != [{"score": 1.0}]:
+    # The score is stringified too, so coerce before comparing to the expected 1.0.
+    try:
+        score = float(rows[0]["score"]) if len(rows) == 1 else None
+    except (KeyError, IndexError, TypeError, ValueError):
+        score = None
+    if score is None or abs(score - 1.0) > 1e-9:
         raise DataHarnessError("Zetaris Spark cosine arithmetic did not match the expected value.")
     print("Zetaris Spark cosine arithmetic: OK.")
     data = ZetarisAgentData(settings, client)
