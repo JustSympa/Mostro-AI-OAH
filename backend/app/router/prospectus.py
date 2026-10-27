@@ -11,6 +11,7 @@ from app.agent.errors import RefusalError, RetrievalError
 from app.config import Settings
 from app.models import Chunk, Document
 from app.services.embeddings import Embedder
+from app.services.jev import JEVJudgeImpl
 
 
 @dataclass(frozen=True)
@@ -50,7 +51,7 @@ class ProspectusRetriever:
         self._embedder = embedder
         self._settings = settings
         self._rewriter = rewriter or QueryRewriter()
-        self._judge = judge or SimilarityJudge()
+        self._judge = judge or (JEVJudgeImpl(settings.jev_endpoint) if getattr(settings, 'jev_endpoint', None) else SimilarityJudge())
 
     async def retrieve(self, query: str, ipo_id: uuid.UUID, *, limit: int = 8) -> list[RetrievedChunk]:
         rewritten = query
@@ -77,7 +78,15 @@ class ProspectusRetriever:
                 RetrievedChunk(chunk=chunk, score=max(0.0, 1.0 - float(distance_value)))
                 for chunk, distance_value in rows
             ]
-            score = await self._judge.score(rewritten, chunks)
+            # If using JEVJudgeImpl, convert chunks to plain dicts expected by the service
+if isinstance(self._judge, JEVJudgeImpl):
+    chunk_dicts = [
+        {"id": str(chunk.chunk.id), "content": chunk.chunk.content}
+        for chunk in chunks
+    ]
+    score = await self._judge.score(rewritten, chunk_dicts)
+else:
+    score = await self._judge.score(rewritten, chunks)
             if chunks and score >= self._settings.retrieval_threshold:
                 return chunks
             if attempt + 1 < max(1, self._settings.retrieval_max_attempts):

@@ -34,6 +34,9 @@ class Settings(BaseSettings):
     meterless_api_key: str | None = Field(default=None)
     nemetron_bolt_url: str | None = Field(default=None)
     nemetron_bolt_model: str = Field(default="nemetron-bolt")
+    jev_endpoint: str | None = Field(default=None)
+    jev_api_key: str | None = Field(default=None)
+
     embedding_api_url: str | None = Field(default=None)
     embedding_api_key: str | None = Field(default=None)
     embedding_model: str = Field(default="voyage-3.5")

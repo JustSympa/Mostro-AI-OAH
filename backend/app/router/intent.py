@@ -21,8 +21,11 @@ class JEVClassifier(Protocol):
     async def classify(self, message: str) -> PipelineContext: ...
 
 
+from app.services.jev import JEVClassifierImpl
+from app.config import Settings
+
 class RuleBasedJEVClassifier:
-    """Replaceable local classifier used until a JEV endpoint is configured."""
+    """Simple keyword‑based fallback classifier used when no JEV endpoint is configured."""
 
     async def classify(self, message: str) -> PipelineContext:
         normalized = message.casefold()
@@ -35,10 +38,25 @@ class RuleBasedJEVClassifier:
             return PipelineContext(Pipeline.EDUCATION, "education intent keyword")
         return PipelineContext(Pipeline.PROSPECTUS, "prospectus is the default pipeline")
 
-
 class IntentRouter:
-    def __init__(self, classifier: JEVClassifier | None = None) -> None:
-        self._classifier = classifier or RuleBasedJEVClassifier()
+    def __init__(self, settings: Settings | None = None, classifier: JEVClassifier | None = None) -> None:
+        # If a JEV endpoint is configured, use the real classifier; otherwise fall back to rule‑based.
+        self._classifier = classifier
+        if self._classifier is None:
+            if settings and settings.jev_endpoint:
+                self._classifier = JEVClassifierImpl(settings.jev_endpoint, settings.jev_api_key)
+            else:
+                self._classifier = RuleBasedJEVClassifier()
 
     async def route(self, message: str) -> PipelineContext:
-        return await self._classifier.classify(message)
+        result = await self._classifier.classify(message)
+        # JEV service may return a plain dict; convert to PipelineContext if necessary
+        if isinstance(result, dict):
+            from app.router.intent import Pipeline, PipelineContext
+            pipeline = Pipeline(result.get("pipeline", "prospectus"))
+            rationale = result.get("rationale", "")
+            return PipelineContext(pipeline=pipeline, rationale=rationale)
+        return result
+
+
+# Duplicate IntentRouter implementation removed – only the settings-aware version is used

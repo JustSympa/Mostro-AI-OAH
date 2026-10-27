@@ -1,3 +1,5 @@
+
+name: mostro-ai-oah-backend-only
 services:
   postgres:
     image: pgvector/pgvector:pg16

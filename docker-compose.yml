@@ -1,5 +1,7 @@
 # Docker Compose for full stack (backend + frontend) and Zetaris services
 
+name: mostro-ai-oah
+
 services:
   # Core services
   postgres:
@@ -62,32 +64,6 @@ services:
       - internal
       - public
 
-  # Zetaris services (example placeholders)
-  zetaris-engine:
-    image: zetaris/engine:latest
-    restart: unless-stopped
-    ports:
-      - "${ZETARIS_ENGINE_PORT:-9000}:9000"
-    environment:
-      # Add any required environment vars for the engine here
-      ENGINE_MODE: production
-    networks:
-      - internal
-
-  zetaris-proxy:
-    image: zetaris/proxy:latest
-    restart: unless-stopped
-    ports:
-      - "${ZETARIS_PROXY_PORT:-9100}:9100"
-    environment:
-      # Proxy configuration – point to the engine service
-      ENGINE_HOST: zetaris-engine
-      ENGINE_PORT: 9000
-    depends_on:
-      zetaris-engine:
-        condition: service_started
-    networks:
-      - internal
 
 networks:
   internal:
