@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useMemo, useState } from "react";
+import React, { useEffect, useMemo, useState } from "react";
 import {
   ArrowUpRightIcon,
   BarChart3Icon,
@@ -18,13 +18,11 @@ import {
 } from "./Icons";
 import {
   CATEGORY_META,
-  MOST_READ,
   SENTIMENT_STYLES,
-  STORIES,
   TOPIC_TABS,
-  TRENDING_TOPICS,
-  WATCHLIST,
+  fetchNews,
   interestsFor,
+  type NewsFeed,
   type NewsStory,
 } from "../lib/ipoNews";
 
@@ -130,10 +128,36 @@ export function IpoNewsHub({ riskLabel }: IpoNewsHubProps) {
   const [activeTopic, setActiveTopic] = useState("all");
   const [openStoryId, setOpenStoryId] = useState<string | null>(null);
 
+  const [feed, setFeed] = useState<NewsFeed | null>(null);
+  const [status, setStatus] = useState<"loading" | "ready" | "error">("loading");
+  const [reloadKey, setReloadKey] = useState(0);
+
+  useEffect(() => {
+    let cancelled = false;
+    const load = async () => {
+      try {
+        const data = await fetchNews();
+        if (cancelled) return;
+        setFeed(data);
+        setStatus("ready");
+      } catch {
+        if (!cancelled) setStatus("error");
+      }
+    };
+    load();
+    return () => {
+      cancelled = true;
+    };
+  }, [reloadKey]);
+
+  const stories = useMemo(() => feed?.stories ?? [], [feed]);
+  const trendingTopics = feed?.trendingTopics ?? [];
+  const watchlist = feed?.watchlist ?? [];
+
   const interests = useMemo(() => interestsFor(riskLabel), [riskLabel]);
 
   const filtered = useMemo(() => {
-    let list = STORIES;
+    let list = stories;
     if (activeTopic === "for-you") {
       const personalised = list.filter((story) =>
         story.topics.some((topic) => interests.includes(topic))
@@ -155,14 +179,14 @@ export function IpoNewsHub({ riskLabel }: IpoNewsHubProps) {
       );
     }
     return list;
-  }, [activeTopic, query, interests]);
+  }, [stories, activeTopic, query, interests]);
 
   const openStory = openStoryId
-    ? STORIES.find((story) => story.id === openStoryId) ?? null
+    ? stories.find((story) => story.id === openStoryId) ?? null
     : null;
 
   const related = openStory
-    ? STORIES.filter(
+    ? stories.filter(
         (story) =>
           story.id !== openStory.id &&
           (story.category === openStory.category ||
@@ -172,10 +196,49 @@ export function IpoNewsHub({ riskLabel }: IpoNewsHubProps) {
 
   const lead = filtered[0] ?? null;
   const rest = filtered.slice(1);
-  const mostRead = MOST_READ.map((entry) => ({
-    ...entry,
-    story: STORIES.find((story) => story.id === entry.id),
-  })).filter((entry) => entry.story);
+  const mostRead = (feed?.mostRead ?? [])
+    .map((entry) => ({
+      ...entry,
+      story: stories.find((story) => story.id === entry.id),
+    }))
+    .filter((entry) => entry.story);
+
+  if (status !== "ready") {
+    return (
+      <div className="rounded-3xl bg-white border border-[#E8E5DE] p-10 text-center space-y-3">
+        {status === "loading" ? (
+          <>
+            <div className="w-12 h-12 rounded-2xl bg-[#F8F7F4] border border-[#E8E5DE] flex items-center justify-center mx-auto text-[#8A6A00] animate-pulse">
+              <NewspaperIcon size={20} />
+            </div>
+            <h3 className="text-sm font-bold text-[#191C24]">Loading IPO news…</h3>
+            <p className="text-xs text-[#5F6470]">
+              Fetching the latest clustered coverage from the server.
+            </p>
+          </>
+        ) : (
+          <>
+            <div className="w-12 h-12 rounded-2xl bg-rose-50 border border-rose-200 flex items-center justify-center mx-auto text-rose-600">
+              <XIcon size={20} />
+            </div>
+            <h3 className="text-sm font-bold text-[#191C24]">Could not load IPO news</h3>
+            <p className="text-xs text-[#5F6470]">
+              The news feed is unavailable right now. Check your connection and try again.
+            </p>
+            <button
+              onClick={() => {
+                setStatus("loading");
+                setReloadKey((key) => key + 1);
+              }}
+              className="text-xs font-bold text-[#8A6A00] hover:underline cursor-pointer"
+            >
+              Retry
+            </button>
+          </>
+        )}
+      </div>
+    );
+  }
 
   return (
     <div className="space-y-6">
@@ -297,19 +360,25 @@ export function IpoNewsHub({ riskLabel }: IpoNewsHubProps) {
               <div className="w-12 h-12 rounded-2xl bg-[#F8F7F4] border border-[#E8E5DE] flex items-center justify-center mx-auto text-[#858995]">
                 <SearchIcon size={20} />
               </div>
-              <h3 className="text-sm font-bold text-[#191C24]">No stories match your filters</h3>
+              <h3 className="text-sm font-bold text-[#191C24]">
+                {stories.length === 0 ? "No stories yet" : "No stories match your filters"}
+              </h3>
               <p className="text-xs text-[#5F6470]">
-                Try a different topic or broaden your search term.
+                {stories.length === 0
+                  ? "The news feed is empty. New coverage will appear here as it is published."
+                  : "Try a different topic or broaden your search term."}
               </p>
-              <button
-                onClick={() => {
-                  setQuery("");
-                  setActiveTopic("all");
-                }}
-                className="text-xs font-bold text-[#8A6A00] hover:underline cursor-pointer"
-              >
-                Reset filters
-              </button>
+              {stories.length > 0 && (
+                <button
+                  onClick={() => {
+                    setQuery("");
+                    setActiveTopic("all");
+                  }}
+                  className="text-xs font-bold text-[#8A6A00] hover:underline cursor-pointer"
+                >
+                  Reset filters
+                </button>
+              )}
             </div>
           )}
         </div>
@@ -325,7 +394,7 @@ export function IpoNewsHub({ riskLabel }: IpoNewsHubProps) {
               </h3>
             </div>
             <div className="divide-y divide-[#F0EDE6]">
-              {WATCHLIST.map((entry) => (
+              {watchlist.map((entry) => (
                 <div key={entry.ticker} className="px-5 py-3 flex items-center gap-3">
                   <span className="w-9 h-9 rounded-xl bg-[#F8F7F4] border border-[#E8E5DE] flex items-center justify-center text-base shrink-0">
                     {entry.emoji}
@@ -387,7 +456,7 @@ export function IpoNewsHub({ riskLabel }: IpoNewsHubProps) {
               </h3>
             </div>
             <div className="p-4 flex flex-wrap gap-2">
-              {TRENDING_TOPICS.map((topic) => (
+              {trendingTopics.map((topic) => (
                 <button
                   key={topic}
                   onClick={() => {

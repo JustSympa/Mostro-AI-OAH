@@ -26,15 +26,18 @@ import { SecuritySettingsModal } from "../../components/SecuritySettingsModal";
 import { IpoInteractiveCalendar } from "../../components/IpoInteractiveCalendar";
 import { FinancialLearningHub } from "../../components/FinancialLearningHub";
 import { IpoNewsHub } from "../../components/IpoNewsHub";
+import { AiAssistantChat } from "../../components/AiAssistantChat";
 
 function DashboardInner() {
   const router = useRouter();
   const searchParams = useSearchParams();
 
-  // Tab state (ipo, learning, news)
+  // Tab state (ipo, learning, news, assistant)
   const initialTab = (searchParams.get("tab") as DashboardTab) || "ipo";
   const [activeTab, setActiveTab] = useState<DashboardTab>(
-    initialTab === "learning" || initialTab === "news" ? initialTab : "ipo"
+    initialTab === "learning" || initialTab === "news" || initialTab === "assistant"
+      ? initialTab
+      : "ipo"
   );
   const [mobileSidebarOpen, setMobileSidebarOpen] = useState(false);
 
@@ -124,7 +127,9 @@ function DashboardInner() {
                   ? "IPO Calendar & Intel"
                   : activeTab === "learning"
                   ? "Financial Learning Quests"
-                  : "News & Updates"}
+                  : activeTab === "news"
+                  ? "News & Updates"
+                  : "AI Financial Copilot"}
               </h1>
             </div>
           </div>
@@ -172,6 +177,13 @@ function DashboardInner() {
           {activeTab === "news" && (
             <div className="animate-fade-in">
               <IpoNewsHub riskLabel={profile?.risk_label} />
+            </div>
+          )}
+
+          {/* ════════════════ TAB 4: AI ASSISTANT ════════════════ */}
+          {activeTab === "assistant" && (
+            <div className="animate-fade-in">
+              <AiAssistantChat />
             </div>
           )}
         </main>

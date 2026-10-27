@@ -733,7 +733,7 @@ The project has two main sub‑folders at the repository root:
 - **frontend/** – a Next.js application that builds a static web UI.
 - **backend/** – the FastAPI service that implements the agent, retrieval, and APIs.
 
-The Dockerfile performs a multi‑stage build: it first builds the Next.js app, then copies the generated static assets into the FastAPI image, which serves them.
+The Dockerfile performs a multi‑stage build that exposes two targets. The root `docker-compose.yml` is the single entry point: it starts `postgres`, `redis`, the FastAPI `api` on :8000, and a `web` container (nginx) serving the built Next.js static export on :3000.
 
 
 The Python package is `ai`. Adjust paths if it lives under `src/`.
@@ -750,7 +750,6 @@ Mostro-AI-OAH/
 ├── backend/
 │   ├── alembic.ini
 │   ├── pyproject.toml, uv.lock
-│   ├── Dockerfile, docker-compose.yml, .dockerignore
 │   ├── alembic/                 # migrations
 │   ├── logs/                    # runtime logs
 │   ├── data/demo/               # demo IPO data
@@ -791,8 +790,7 @@ Mostro-AI-OAH/
 │   ├── package.json
 │   ├── package-lock.json
 │   ├── tsconfig.json
-│   ├── AGENTS.md
-│   └── Dockerfile
+│   └── AGENTS.md
 ```
 
 ### Layering rules

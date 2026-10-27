@@ -8,12 +8,13 @@ import {
   BrainIcon,
   CalendarIcon,
   NewspaperIcon,
+  BotIcon,
   ShieldCheckIcon,
   XIcon,
 } from "./Icons";
 import { RiskProfileData } from "./RiskAssessmentWizard";
 
-export type DashboardTab = "ipo" | "learning" | "news";
+export type DashboardTab = "ipo" | "learning" | "news" | "assistant";
 
 interface DashboardSidebarProps {
   activeTab: DashboardTab;
@@ -64,6 +65,13 @@ export function DashboardSidebar({
       label: "News & Updates",
       sublabel: "Market headlines & IPO filings",
       icon: <NewspaperIcon size={18} />,
+    },
+    {
+      id: "assistant",
+      label: "AI Assistant",
+      sublabel: "Prospectus Q&A & concepts",
+      icon: <BotIcon size={18} />,
+      badge: "Copilot",
     },
   ];
 

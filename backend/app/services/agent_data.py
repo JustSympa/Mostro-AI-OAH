@@ -5,12 +5,46 @@ import math
 import uuid
 from typing import Annotated, Literal, TypeVar
 
-from pydantic import BaseModel, Field, FiniteFloat, StrictInt, StrictStr, ValidationError, field_validator
+from pydantic import (
+    BaseModel,
+    BeforeValidator,
+    Field,
+    FiniteFloat,
+    StrictInt,
+    StrictStr,
+    ValidationError,
+    field_validator,
+)
 
 from app.agent.errors import DataHarnessError
 from app.config import Settings
 from app.models import Chunk, IPO, KeyFact, Message
 from app.services.zetaris import ZetarisClient
+
+
+def _unpack_int(value: object) -> object:
+    """Zetaris serializes every scalar as a string; unwrap integers in transit."""
+    if isinstance(value, str):
+        try:
+            return int(value)
+        except ValueError:
+            return value
+    return value
+
+
+def _unpack_float(value: object) -> object:
+    if isinstance(value, str):
+        try:
+            return float(value)
+        except ValueError:
+            return value
+    return value
+
+
+# The unwrapped value still faces strict validation, so booleans, junk strings
+# and non-finite numbers are rejected rather than coerced.
+ZetarisInt = Annotated[StrictInt, BeforeValidator(_unpack_int)]
+ZetarisFloat = Annotated[FiniteFloat, BeforeValidator(_unpack_float)]
 
 
 class _IPORecord(BaseModel):
@@ -28,14 +62,14 @@ class _ChunkRecord(BaseModel):
     document_id: uuid.UUID
     ipo_id: uuid.UUID
     content: StrictStr
-    page_number: Annotated[StrictInt, Field(ge=1)]
+    page_number: Annotated[ZetarisInt, Field(ge=1)]
     section_path: StrictStr | None
-    score: Annotated[FiniteFloat, Field(strict=True, ge=-1, le=1)]
+    score: Annotated[ZetarisFloat, Field(strict=True, ge=-1, le=1)]
 
 
 class LearningProfile(BaseModel):
     preferred_language: StrictStr
-    risk_level: Annotated[StrictInt, Field(ge=1, le=5)] | None
+    risk_level: Annotated[ZetarisInt, Field(ge=1, le=5)] | None
     risk_label: StrictStr | None
     applied_constraints: list[StrictStr] | None
 
@@ -56,7 +90,7 @@ class _FactRecord(BaseModel):
     ipo_id: uuid.UUID
     fact_type: StrictStr
     value: StrictStr
-    source_page: Annotated[StrictInt, Field(ge=1)]
+    source_page: Annotated[ZetarisInt, Field(ge=1)]
 
 
 Record = TypeVar("Record", bound=BaseModel)

@@ -325,7 +325,7 @@ async def test_invalid_chunk_limits_are_explicit(limit) -> None:
 
 @pytest.mark.parametrize(
     "overrides",
-    [{"score": float("nan")}, {"score": 1.1}, {"score": True}, {"score": "0.95"},
+    [{"score": float("nan")}, {"score": 1.1}, {"score": True}, {"score": "not-a-number"},
      {"id": "invalid"}, {"page_number": 0},
      {"content": None}, {"ipo_id": str(uuid.uuid4())}],
 )
@@ -335,6 +335,18 @@ async def test_invalid_chunk_records_never_become_evidence(overrides) -> None:
     client.query.return_value = [{**chunk_record(ipo_id), **overrides}]
     with pytest.raises(DataHarnessError):
         await data.chunks(ipo_id, [1.0] * 1024)
+
+
+async def test_zetaris_stringified_scalars_are_unwrapped() -> None:
+    """The engine serializes every scalar as a string, including numbers."""
+    data, client = data_client()
+    ipo_id = uuid.uuid4()
+    client.query.return_value = [
+        {key: str(value) for key, value in chunk_record(ipo_id, score=0.8).items()}
+    ]
+    matches = await data.chunks(ipo_id, [1.0] * 1024)
+    assert matches[0][0].page_number == 12
+    assert matches[0][1] == 0.8
 
 
 async def test_all_context_queries_are_user_and_session_scoped() -> None:
